@@ -3,7 +3,7 @@
 Standard H.264 videos that compute. Each file holds a starting state and one small *program* frame,
 repeated. The video decoder in your browser, phone or media player computes the pictures while the
 video plays. The main program is Conway's Game of Life, which is Turing complete. So explicit weighted
-prediction, a feature added to H.264 for fades, is enough to build a universal computer, limited only
+prediction, a feature added to H.264 for fades,[^boyce] is enough to build a universal computer, limited only
 by the size of the frame. In `tunnel.mp4` the decoder also zooms and turns a 1920×1080 picture of the
 board's history, interpolating at quarter-pixel precision.
 
@@ -57,10 +57,12 @@ A video decoder rebuilds most of each picture from pictures it has already decod
 3. **Mix.** With explicit weighted prediction, a macroblock that reads from both lists computes, for
    every sample,
 
-       clip(((w0·a + w1·b + 2^L) >> (L+1)) + o)
+       clip(((w0·a + w1·b + 2^L) >> (L+1)) + ((o0 + o1 + 1) >> 1))
 
-   and one that reads from a single list computes clip(((w·a + 2^(L−1)) >> L) + o). Weights and offsets
-   are integers from −128 to 127, and L, the log2 of the weights' denominator, runs from 0 to 7.
+   and one that reads from a single list computes clip(((w·a + 2^(L−1)) >> L) + o), or clip(w·a + o)
+   when L = 0. Weights and offsets are integers from −128 to 127, and L, the log2 of the weights'
+   denominator, runs from 0 to 7. Board ops give both entries the same offset o, so the last term is just o.
+   These are equations 8-274 to 8-276 of the standard.[^h264]
 4. **Nothing else.** Encoders normally send a residual that corrects the prediction, and a deblocking
    filter smooths the edges between blocks. These files send no residual and switch deblocking off, so
    every decoded sample is exactly the prediction.
@@ -100,7 +102,7 @@ for its neighbours. The field's own op fills the halo through wrapped motion vec
 | colour | ramps, then weighted pairs per plane at L = 6 | every display |
 
 AND is a threshold on the average, so every Boolean gate takes one or two ops. In a bi-prediction,
-w0 + w1 must stay between −128 and 128, which is why steep weights come in opposing pairs, as in a
+w0 + w1 must stay between −128 and 128 (127 when L = 7), which is why steep weights come in opposing pairs, as in a
 threshold against `K`.
 
 **Pipelines.** An op reads earlier frames, so a chain of ops takes one frame per op. Every op still runs
@@ -113,7 +115,8 @@ copies of its computation.
 
 **What it can compute.** Every Boolean circuit, at one or two frames per gate of depth. With reference
 pictures as registers, every finite-state machine. The Game of Life is itself Turing complete (Berlekamp, Conway
-and Guy, *Winning Ways*, 1982), and Paul Rendell built a Turing machine in it in 2000. So the decoder is
+and Guy, *Winning Ways*, 1982),[^ww] and Paul Rendell built a Turing machine in it in 2000 and a universal one
+in 2010.[^rendell] So the decoder is
 a universal computer in the sense that any real computer is one: up to its memory, here a 200×200 torus.
 
 **What it cannot.**
@@ -174,8 +177,8 @@ counter. So the program frames differ only in those 4 bits: the file is 16 diffe
 - Skipped copies follow until the longest delay reaches the starting state.
 - Then the program frames repeat.
 
-**Fitting level 5.1.** A decoder that supports level 5.1 must handle any stream within its limits, so
-every build checks them:
+**Fitting level 5.1.** A decoder that supports level 5.1 must handle any stream within its limits
+(Annex A of the standard[^h264]), so every build checks them:
 
 | Level 5.1 limit | `life.mp4` | `tunnel.mp4` |
 |---|---|---|
@@ -234,7 +237,7 @@ flowchart LR
 
 ### Spiral waves
 
-`spiral.mp4` runs David Griffeath's cyclic cellular automaton: 14 states on a 64×64 torus, where a cell
+`spiral.mp4` runs the cyclic cellular automaton of Robert Fisch, Janko Gravner and David Griffeath:[^cca] 14 states on a 64×64 torus, where a cell
 advances to the next state when a neighbour already holds it. States are stored as 9k, from 0 to 117.
 Spaced out like that, comparisons with integer weights can tell a neighbour one state ahead from every
 other difference, including across the wrap from 13 back to 0. One generation takes 69 fields and 9
@@ -250,7 +253,7 @@ stages:
 
 ### Turing patterns
 
-`turing.mp4` runs Jonathan McCabe's multi-scale Turing patterns on a 104×104 torus, in 70 fields:
+`turing.mp4` runs Jonathan McCabe's multi-scale Turing patterns[^mccabe] on a 104×104 torus, in 70 fields:
 - **A blur pyramid.** `T1` … `B5` are pairs of averages, each level twice as wide as the last. At L = 6,
   (64a + 64b + 64) >> 7 is exactly (a + b + 1) >> 1.
 - **Four scales.** At each scale, the activator (one blur) minus the inhibitor (the next) is taken apart
@@ -268,7 +271,7 @@ per frame, and the patterns still form.
 *warp*: each of its macroblocks copies an earlier frame at its own motion vector, in quarter pixels,
 then weights the result like any other prediction.
 
-When a vector lands between pixels, the decoder interpolates:
+When a vector lands between pixels, the decoder interpolates (section 8.4.2.2 of the standard[^h264]):
 - Half-pixel luma samples come from the 6-tap filter (1, −5, 20, 20, −5, 1) / 32, rounded and clipped.
   The centre half-pixel filters the unrounded vertical sums a second time.
 - Quarter-pixel samples average two neighbours, rounding up.
@@ -308,7 +311,7 @@ your browser's own decoder runs it.
   stored state and the copies, byte for byte as Python would.
 - **Why not Media Source Extensions.** MSE is the usual way to stream into a `<video>` element, and it
   cannot run these forever. Its buffer must be trimmed, and the standard's removal rule also removes
-  every frame up to the next random access point, because later frames may depend on removed ones. These
+  every frame up to the next random access point,[^mse] because later frames may depend on removed ones. These
   streams have exactly one random access point, frame 0. Left untrimmed, the buffer fills: desktop Chrome
   holds about 150 MB of video, which is 15 minutes of Life or under two minutes of the tunnel.
 - **WebCodecs instead.** The page hands the decoder one frame at a time, as MP4-style samples, and draws
@@ -336,7 +339,8 @@ Decoding all 1800 frames: single thread, ffmpeg 6.1, a 2.1 GHz Xeon, best of two
 
 For Life, that is about a billion weighted 8-bit samples a second on one core. On the page, Chromium
 (Electron 38), decoding in software on 2 cores with no GPU, ran Life at 350–470 frames a second flat out
-and the tunnel at 100–130. Hardware decoders, as in phones and Macs, have not been timed.
+and the tunnel at 100–130. On an M4 Mac, the same Chromium decoding through VideoToolbox ran Life at
+about 650 and the tunnel at about 200. Phones have not been timed.
 
 ## How it is checked
 
@@ -365,14 +369,21 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
 
   Every hash must equal the simulation's. The test also checks pause and a second run, and that the
   download is the right file byte for byte.
+  - On macOS, Chromium decodes through VideoToolbox and hands the page frames converted to limited range,
+    though the stream says full range: the luma through a table within 1 of 16 + 219 y / 255, the chroma
+    through a colour matrix too. There the test learns the luma table from two whole frames, where each
+    simulated value must always come back as the same value, and compares every hashed frame's luma
+    through it. Life and the tunnel pass on an M4 Mac.
 - **Level 5.1 limits.** Every build checks:
   - macroblock rate and frame size;
   - slices per picture and access-unit sizes;
   - motion-vector ranges;
   - at most 16 entries per reference list.
-- **Apple's decoder.** QuickTime Player and the Claude desktop app both decode through VideoToolbox, not
-  ffmpeg. They played `spiral.mp4` (this exact stream) and an earlier build of `turing.mp4` correctly,
-  checked by eye. A screenshot of an earlier spiral build matched ffmpeg's decode cell for cell.
+- **Apple's decoder.** VideoToolbox, the hardware decoder behind QuickTime Player and Safari on the Mac,
+  is not ffmpeg. `--hwaccel videotoolbox` makes a build check every frame through it instead. On an M4
+  Mac with macOS 27, all 1800 frames of each of the four files equal the simulation in every sample there
+  too. Before that, QuickTime Player and the Claude desktop app played `spiral.mp4` correctly by eye,
+  and a screenshot of an earlier spiral build matched ffmpeg's decode cell for cell.
 
 `pytest` runs the same checks on 3-second versions of each program, and CI runs them on every push.
 
@@ -385,6 +396,11 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
   - It got about 60% of test digits right.
   - It worked, but it was dull to watch. Cellular automata turned out to be the natural fit: local
     rules, iterated forever, with something to see.
+- **ffmpeg's arm64 decoder departs from the standard.** On an Apple-silicon Mac, ffmpeg 9.0.2 failed
+  the random writer test. Bi-prediction from two flat pictures shows it: with weights 64
+  and 63 and both offsets 127 at L = 7, the standard gives 254 and ffmpeg's NEON code gives 0. Its C code
+  (`-cpuflags 0`) and VideoToolbox both give 254. The programs never combine weights and offsets that
+  large, so all four files still decode exactly there; the writer test now decodes with the C code.
 - **Players ignore the crop's left and top offsets.** An early spiral build put the display field in the
   middle of the frame. QuickTime and the Claude desktop app showed the top-left field instead.
   - A screenshot matched ffmpeg's decode of that field cell for cell, in 3580 of 3584 visible cells.
@@ -421,10 +437,11 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
     python -m h264cpu spiral --seconds 10
     python -m h264cpu turing --no-check
     python -m h264cpu tunnel            # 1920x1080; checking all 1800 frames takes a few minutes
+    python -m h264cpu life --hwaccel videotoolbox   # check every frame on Apple's hardware decoder
     python -m h264cpu glassbox life     # the whole frame, labelled (needs ffmpeg with libx264)
     python -m h264cpu web               # the page in docs/
     pytest                              # tests/test_browser.py also needs npm install --prefix tests/browser
-                                        # (Electron) and xvfb-run
+                                        # (Electron) and, on Linux, xvfb-run
 
 To write a new program, start from `h264cpu/programs/life.py`. It is about 100 lines:
 - the ops;
@@ -442,42 +459,64 @@ For a picture field and its warp, see `tunnel.py`.
   - the 69-field spiral program on 64×64;
   - the 70-field Turing program on 104×104.
 - **Starting state.** It is stored as raw samples: from 0.8 MB (Turing) to 5.1 MB (Life) of each file.
-- **Decoders.** Only ffmpeg and Chromium's decoder (ffmpeg inside) are checked frame by frame. Apple's
-  decoder is checked by eye.
+- **Decoders.** Checked frame by frame: ffmpeg, Chromium's software decoder (ffmpeg inside), and Apple's
+  VideoToolbox on an M4 Mac, both through ffmpeg and inside Chromium.
   - Untested: Windows Media Foundation, Android, and GPU decoding in browsers on Windows and Linux.
   - If a player shows something else, please open an issue naming the player and system.
 - **Memory.** The decoder works on frames up to 4032×832 (3712×1088 for the tunnel), more than players
   show.
 - **The endless page.** It needs WebCodecs with H.264: Chrome and Edge, Safari 16.4 or later, Firefox 130
-  or later. A decoder slower than the program's macroblock rate runs it slower, never skipping a frame,
+  or later on desktop.[^webcodecs] A decoder slower than the program's macroblock rate runs it slower, never skipping a frame,
   since every frame is a step of the computation.
 
 ## Prior art
 
-I searched the web, GitHub, Hacker News and the demoscene in October 2026 and found no earlier video file
-whose decoder computes. The nearest relatives:
+I searched the web, GitHub, Hacker News, Reddit, pouët, and work on repurposing codec hardware, in
+October 2026. One earlier work computes in a video decoder: Video2NAND, which lays out logic gates in a
+single VP8 frame. I found no earlier video file whose decoder carries state from frame to frame, so none
+that runs a cellular automaton, or any program, over time. Neither Gwern Branwen's list of surprisingly
+Turing-complete systems[^gwern] nor Andreas Zwinkau's list of accidentally Turing-complete ones[^zwinkau]
+includes a video codec. The nearest relatives:
 
-- **[JPEG XL predictor art](https://dbohdan.com/jpeg-xl) (2021).**
-  - What it is: JPEG XL predicts each pixel with a small decision tree over its neighbours. People found
-    the tree can draw Rule 110 down a still image, one row per step. It would be Turing-complete
-    without the format's 1024×1024 group limit ([pouët thread](https://www.pouet.net/topic.php?which=12091)).
+- **Video2NAND (2026).**[^v2n]
+  - What it is: in one VP8 key frame, all-black and all-white blocks are bits. Horizontal and vertical
+    intra prediction carry them right and down like wires, and TrueMotion prediction (left + top −
+    top-left, clamped) makes NOT and AND gates, so any combinational circuit can be drawn in a frame.
+    Sequential logic through inter frames is left as future work, and came up in the Hacker News
+    discussion.[^v2nhn]
+  - How this differs: Video2NAND showed first that a standard video decoder computes, with no exploit,
+    as here. Its circuits are combinational and settle within one frame. Here inter frames carry the
+    state: the decoded picture buffer is memory, each frame is a clock tick, and a repeated program frame
+    runs forever. That is what cellular automata, and a universal machine up to the frame's size, need.
+    The tool differs too: Video2NAND's gates work on black and white, while weighted prediction does
+    arithmetic on 8-bit values, such as Life's neighbour counts and the Turing program's blurs.
+- **JPEG XL predictor art (2021).**
+  - What it is: JPEG XL predicts each pixel with a small decision tree over its neighbours, and Jon
+    Sneyers pioneered art made from those trees.[^jxlart] In March 2021, code posted on pouët drew Rule 110
+    down a still image, one row per step.[^pouet] D. Bohdan's write-up notes that this stops short of
+    Turing completeness only because the format decodes in groups of at most 1024×1024 pixels; the
+    designers kept the work per pixel bounded on purpose.[^dbohdan]
   - How this differs: that is one still image and a 1D automaton, from a feature that is close to a
     program by design. Here a 2D automaton runs over time and keeps its state between frames. It is
     built from a compression tool with no conditionals at all, on a codec that every phone decodes in
     hardware.
-- **[FORCEDENTRY](https://en.wikipedia.org/wiki/FORCEDENTRY) (2021).**
-  - What it is: an iMessage exploit that built a small computer from the logical operations of a JBIG2
-    image decoder. It needed a memory-corruption bug to run.
+- **FORCEDENTRY (2021).**[^pz]
+  - What it is: an iMessage exploit that ran over 70,000 JBIG2 segment commands, using the image
+    decoder's AND, OR, XOR and XNOR operations as a small computer with registers and a 64-bit adder. It
+    needed an integer overflow (CVE-2021-30860) to reach memory beyond the image.
   - How this differs: these files use only standard features, within the level's limits.
-- **Datamoshing.**
-  - What it is: artists edit motion vectors, for example with FFglitch, and repeat P frames so that
-    pixels keep flowing.
-  - How this differs: the decoder iterates a fixed motion field there, but nothing decides anything.
-    The tunnel's warp is the same kind of iterated motion field, with a fade; what is new is the
+- **Life in datamoshing (2019).**
+  - What it is: artists edit motion vectors with FFglitch,[^ffglitch] and repeat P frames so that pixels
+    keep flowing. Kaspar Ravel and Thomas Collet applied Game of Life rules to the motion vectors of an
+    MPEG-2 video.[^ravel]
+  - How this differs: their Life rule runs in a Python script while the file is made, and the decoder
+    only applies the vectors it is given. Datamoshing iterates a fixed motion field, but nothing decides
+    anything. The tunnel's warp is the same kind of iterated motion field, with a fade; what is new is the
     computation it carries.
 - **Programmable media by design.**
-  - What it is: MPEG-4 Structured Audio's SAOL language and TrueType hinting are languages their
-    standards meant to be run.
+  - What it is: MPEG-4 Structured Audio's SAOL[^saol] and TrueType hinting[^truetype] are languages their
+    standards meant to be run. HarfBuzz's experimental WebAssembly shaper goes further: llama.ttf runs a
+    language model inside a font.[^llama]
   - How this differs: H.264 has no such language.
 
 ## Files
@@ -500,3 +539,25 @@ whose decoder computes. The nearest relatives:
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+[^boyce]: J. M. Boyce, "[Weighted prediction in the H.264/MPEG AVC video coding standard](https://doi.org/10.1109/ISCAS.2004.1328865)", *Proc. IEEE ISCAS 2004*, vol. 3, pp. 789–792.
+[^h264]: ITU-T, [Rec. H.264](https://www.itu.int/rec/T-REC-H.264), *Advanced video coding for generic audiovisual services*: weighted sample prediction in 8.4.2.3 (equations 8-274 to 8-276) and the constraint on w0 + w1 in 8.4.3 (8-298); fractional sample interpolation in 8.4.2.2; level limits in A.3.1, A.3.3 and Tables A-1 and A-4.
+[^ww]: E. R. Berlekamp, J. H. Conway and R. K. Guy, *Winning Ways for Your Mathematical Plays*, vol. 2, ch. 25, "What Is Life?", Academic Press, 1982; [2nd ed.](https://doi.org/10.1201/9780429487309), vol. 4, A K Peters, 2004.
+[^rendell]: P. Rendell, "[A Turing Machine in Conway's Game of Life](http://rendell-attic.org/gol/tm.htm)" (2000) and "[A Universal Turing Machine in Conway's Game of Life](http://rendell-attic.org/gol/utm/index.htm)" (2010); see also his book [*Turing Machine Universality of the Game of Life*](https://doi.org/10.1007/978-3-319-19842-2), Springer, 2016.
+[^cca]: R. Fisch, J. Gravner and D. Griffeath, "[Cyclic cellular automata in two dimensions](https://www.math.ucdavis.edu/~gravner/papers/cca.pdf)", in *Spatial Stochastic Processes*, Birkhäuser, 1991, pp. 171–185.
+[^mccabe]: J. McCabe, "[Cyclic Symmetric Multi-Scale Turing Patterns](https://archive.bridgesmathart.org/2010/bridges2010-387.html)", *Proceedings of Bridges 2010*, pp. 387–390.
+[^mse]: W3C, [Media Source Extensions](https://www.w3.org/TR/media-source-2/#sourcebuffer-coded-frame-removal), coded frame removal algorithm: after removing frames, it removes "all coded frames … between those frames removed in the previous step and the next random access point after those removed frames".
+[^webcodecs]: MDN, [VideoDecoder browser compatibility](https://developer.mozilla.org/en-US/docs/Web/API/VideoDecoder#browser_compatibility): Chrome and Edge 94, Safari 16.4, Firefox 130 (not Firefox for Android).
+[^gwern]: G. Branwen, "[Surprisingly Turing-Complete](https://gwern.net/turing-complete)", accessed October 2026.
+[^zwinkau]: A. Zwinkau, "[Accidentally Turing-Complete](https://beza1e1.tuxen.de/articles/accidentally_turing_complete.html)", accessed October 2026.
+[^v2n]: firer, "[Video2NAND](https://sharedobject.blog/posts/vp8-combinatorial-logic/)", *Shared Object*, 11 July 2026.
+[^v2nhn]: "[Video2NAND – Abusing video codecs for great computational power](https://news.ycombinator.com/item?id=49145037)", Hacker News, August 2026.
+[^jxlart]: J. Sneyers, [JPEG XL art gallery](https://sneyers.info/jxl/art/); Surma, [JXL Art playground](https://jxl-art.surma.technology/).
+[^pouet]: "[The JPEG XL image format has demo potential](https://www.pouet.net/topic.php?which=12091)", pouët.net, from 29 March 2021; the Rule 110 code was posted on 30 March 2021.
+[^dbohdan]: D. Bohdan, "[JPEG XL would be Turing-complete](https://dbohdan.com/jpeg-xl)", 2021, updated 2023; it quotes Jon Sneyers that the format is "(intentionally) not Turing complete".
+[^pz]: I. Beer and S. Groß, "[A deep dive into an NSO zero-click iMessage exploit: Remote Code Execution](https://projectzero.google/2021/12/a-deep-dive-into-nso-zero-click.html)", Google Project Zero, 15 December 2021.
+[^ffglitch]: R. Polla, [FFglitch](https://ffglitch.org/), a multimedia bitstream editor built on FFmpeg.
+[^ravel]: K. Ravel, "[Conway's Game of Life encoded in video predictive frames](https://web.archive.org/web/20201206003023/https://www.kaspar.wtf/blog/encoding-the-game-of-life-in-datamosh)", 26 November 2019 (archived copy).
+[^saol]: E. D. Scheirer and B. L. Vercoe, "[SAOL: The MPEG-4 Structured Audio Orchestra Language](https://doi.org/10.1162/014892699559742)", *Computer Music Journal* 23(2), 1999, pp. 31–51.
+[^truetype]: Apple, *TrueType Reference Manual*, "[The TrueType Instruction Set](https://developer.apple.com/fonts/TrueType-Reference-Manual/RM05/Chap5.html)".
+[^llama]: S. Fuglede Jørgensen, "[llama.ttf](https://fuglede.github.io/llama.ttf/)", 2024.
