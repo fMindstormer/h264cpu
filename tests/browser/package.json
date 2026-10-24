@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Electron, for tests/test_browser.py: a Chromium that decodes H.264",
+  "devDependencies": {
+    "electron": "38.8.6"
+  }
+}

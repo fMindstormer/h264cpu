@@ -1,0 +1,32 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install ffmpeg and Xvfb
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb
+      - name: Install Python packages
+        run: pip install -r requirements.txt pytest
+      - name: Install Electron, a Chromium that decodes H.264, for the page test
+        run: npm ci --prefix tests/browser
+      - name: Writer, programs (every frame decoded and compared), browser parity and the page in Chromium
+        run: pytest -q
+      - name: The Pages build is up to date
+        run: |
+          python -m h264cpu web --docs /tmp/docs
+          cmp /tmp/docs/index.html docs/index.html
+          cmp /tmp/docs/h264cpu.js docs/h264cpu.js
+          cmp /tmp/docs/life.json docs/life.json
+          cmp /tmp/docs/tunnel.json docs/tunnel.json
