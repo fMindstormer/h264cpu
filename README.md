@@ -119,8 +119,10 @@ a universal computer in the sense that any real computer is one: up to its memor
 **What it cannot.**
 - *Choose addresses.* Motion vectors are written into the program frame, which never changes. A program
   is a circuit wired by motion vectors, closer to an FPGA bitstream than to code.
-- *Multiply two variables.* Weights belong to list entries, so they are constants. Squaring a number, as
-  a Mandelbrot iteration does, is out of reach, and so is precision beyond 8 bits.
+- *Multiply two variables in one op.* Weights belong to list entries, so they are constants: an op only
+  scales its inputs by fixed numbers. A product of two fields is still computable, like any circuit, but
+  as a multiplier over their bits, many ops and frames deep. Values wider than 8 bits likewise take
+  several fields per number, with carries between them.
 - *Scale.* Blocks are translated, never scaled or rotated. The tunnel builds zoom and rotation out of
   thousands of slightly different translations.
 - *Avoid rounding.* Every op rounds and clips. The programs either stay exact (integers at L = 0,
@@ -408,8 +410,9 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
   compared 16×16, 8×8 and 4×4 blocks with a warp computed per pixel. They looked the same, because the
   notches along each streak are generations, not block edges. So the tunnel uses one vector per
   macroblock, and its program frame is 24.7 KB. With 8×8 blocks it would be 62 KB.
-- **No infinite Mandelbrot zoom.** It was the obvious showpiece, and it is out of reach: the iteration
-  squares a number, weights are constants, values have 8 bits, and blocks cannot be scaled.
+- **No infinite Mandelbrot zoom.** It was the obvious showpiece, and it does not fit. Each iteration
+  squares a number, which here means a whole multiplier circuit over multi-field values, and a deeper
+  zoom needs ever more bits per number. The frame, and the macroblock rate level 5.1 allows, are fixed.
 
 ## Run it
 
