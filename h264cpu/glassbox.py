@@ -15,7 +15,8 @@ import subprocess
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+FONT = next((f for f in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", "/System/Library/Fonts/Menlo.ttc")
+             if os.path.exists(f)), None)
 TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
 TO_TV = "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
 # contrast stretches for fields with a small range of values: name prefix -> (centre, gain)
@@ -31,6 +32,13 @@ SETTINGS = {
                  note="one generation every 6 frames"),
     "tunnel": dict(scale=1, cell_px=1, stretch=LIFE_STRETCH, crf=26, every=2, seconds=12, view_crf=None,
                    note="one generation every 6 frames; the picture T is a quarter-pixel warp of itself"),
+    "primes": dict(scale=1, cell_px=2, stretch={}, crf=22, every=1, seconds=12, view_crf=None,
+                   note="one instruction every 17 frames",
+                   labels={"B": "B: the 64 registers, bit k of R_r in cell (r, k)", "IR": "IR", "PC": "PC",
+                           "DISP": "DISP", "C": "C", "R55": "R55", "R56": "R56", "R57": "R57", "R60": "R60",
+                           "R61": "R61", "nsrc": "source row", "ndst": "destination row", "npc": "PC row",
+                           "valgen": "read", "val": "value", "g8": "carries", "digit": "digits",
+                           **{f"seg{c}": c for c in "abcdefg"}}),
 }
 
 
@@ -41,7 +49,7 @@ def stretch_of(name, table):
     return None
 
 
-def overlay(m, name, note, cell_px, table, cap, crop="D"):
+def overlay(m, name, note, cell_px, table, cap, crop="D", labels=None):
     """Labels and caption as an RGBA image at the glass box's scale (cell_px pixels per cell)."""
     k = cell_px / 2
     Wp, Hp = int(m.width_mbs * 16 * k), int(m.height_mbs * 16 * k)
@@ -51,9 +59,12 @@ def overlay(m, name, note, cell_px, table, cap, crop="D"):
     small = ImageFont.truetype(FONT, 13 if cell_px == 2 else 11)
     big = ImageFont.truetype(FONT, 17 if cell_px == 2 else 13)
     for fname, f in m.fields.items():
+        if labels is not None and fname not in labels and fname != crop:
+            continue
         x, y = int(f.x0 * k) + 3, int(f.y0 * k) + 3
         s = stretch_of(fname, table)
-        text = fname + (" (board + halo)" if fname == "S" else "") + (" (displayed)" if fname == crop else "")
+        text = labels.get(fname, fname) if labels else fname
+        text += (" (board + halo)" if fname == "S" else "") + (" (displayed)" if fname == crop else "")
         text += f" x{s[1]}" if s else ""
         box = d.textbbox((x, y), text, font=small)
         d.rectangle((box[0] - 2, box[1] - 2, box[2] + 2, box[3] + 2), fill=(0, 0, 0, 170))
@@ -66,16 +77,16 @@ def overlay(m, name, note, cell_px, table, cap, crop="D"):
     line2 = ("Grey level = a field's value in the luma plane (Cb and Cr hold the same numbers, except in the colour "
              f"stage{'s' if len(colour) > 1 else ''} {', '.join(colour)}){'; xN = contrast stretched' if table else ''}. "
              + (f"{crop}, in colour, is the {sw}x{sh} picture a normal player shows, with D in its middle."
-                if pictures else f"D, in colour, is the {sw}x{sh} picture a normal player shows."))
+                if pictures and crop != "D" else f"D, in colour, is the {sw}x{sh} picture a normal player shows."))
     d.text((8, Hp + 5), line1, font=big, fill=(235, 235, 235, 255))
     d.text((8, Hp + cap // 2 + 2), line2, font=big, fill=(170, 170, 170, 255))
     return np.asarray(im).astype(np.float32)
 
 
-def glassbox(m, name, note, cell_px, table, crf, every, seconds, out="out", crop="D"):
+def glassbox(m, name, note, cell_px, table, crf, every, seconds, out="out", crop="D", labels=None):
     Wp, Hp = m.width_mbs * 16, m.height_mbs * 16
     cap = 48 if cell_px == 2 else 36
-    lab = overlay(m, name, note, cell_px, table, cap, crop)
+    lab = overlay(m, name, note, cell_px, table, cap, crop, labels)
     alpha = lab[..., 3:] / 255
     W, H = lab.shape[1], lab.shape[0]
     dec = subprocess.Popen(["ffmpeg", "-v", "error", "-flags2", "+ignorecrop", "-i", os.path.join(out, f"{name}.mp4"),
@@ -129,7 +140,7 @@ def main(program, out="out"):
     p = SETTINGS[name]
     m = program.build()
     glassbox(m, name, p["note"], p["cell_px"], p["stretch"], p["crf"], p["every"], p["seconds"], out,
-             getattr(program, "CROP", "D"))
+             getattr(program, "CROP", "D"), p.get("labels"))
     if p["view_crf"] is None:          # (the Turing and Life pictures change everywhere every few frames: an
         return                         # enlarged copy costs as much as the original, which plays fine full-screen)
     size = 2 * m.fields["D"].w * p["scale"]

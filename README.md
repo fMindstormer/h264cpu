@@ -7,6 +7,11 @@ prediction, a feature added to H.264 for fades,[^boyce] is enough to build a uni
 by the size of the frame. In `tunnel.mp4` the decoder also zooms and turns a 1920×1080 picture of the
 board's history, interpolating at quarter-pixel precision.
 
+And `primes.mp4` holds a stored-program computer. It is the instruction set of the Wireworld computer
+(David Moore and Mark Owen, 1990–92): 64 sixteen-bit registers and a single instruction, MOV, built as a
+circuit of weighted predictions. It runs Michael Fryers' prime program out of its own register bank,
+one instruction every 17 frames, and shows each prime it finds in decimal on a seven-segment display.
+
 [![checks](https://github.com/fMindstormer/h264cpu/actions/workflows/checks.yml/badge.svg)](https://github.com/fMindstormer/h264cpu/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
@@ -17,6 +22,11 @@ board's history, interpolating at quarter-pixel precision.
 
 *`tunnel.mp4`: the live board in the middle; each streak is the history of one cell on its edge, one notch
 per generation.*
+
+<img src="docs/images/primes.webp" width="592" alt="A five-digit red seven-segment display counting 00002, 00003, 00005, 00007">
+
+*`primes.mp4`, at four times speed: the decoder executes the program and shows 2, 3, 5 and 7 within its
+30 seconds.*
 
 <table>
 <tr>
@@ -33,15 +43,17 @@ per generation.*
 | `life.mp4` | Conway's Game of Life (B3/S23) on a 200×200 torus | 400×400 | 298 generations | 10.0 MB; 2.7 KB program frame |
 | `spiral.mp4` | Cyclic cellular automaton, 14 states, on a 64×64 torus | 128×128 | 199 generations | 7.2 MB; 2.8 KB program frame |
 | `turing.mp4` | Multi-scale Turing patterns, after Jonathan McCabe, on a 104×104 torus | 208×208 | 1,793 steps | 21.6 MB; 11.6 KB program frame |
+| `primes.mp4` | The Wireworld computer's instruction set, running Michael Fryers' prime program | 592×208 | 104 instructions: it shows 2, 3, 5 and 7 | 66.9 MB; 35.2 KB program frame |
 
-All four files use H.264 Main profile at level 5.1, and every build checks that they stay within that
+All five files use H.264 Main profile at level 5.1, and every build checks that they stay within that
 level's limits. The 16 copies of each program frame differ only in a 4-bit frame counter. The
 [page](https://fmindstormer.github.io/h264cpu/) needs no file at all: it hands your browser's decoder the
 program frames through WebCodecs for as long as the tab is open.
 
 **Inside:** [one macroblock is one instruction](#one-macroblock-is-one-instruction) ·
 [the computation model](#the-computation-model) · [from a program to frames](#from-a-program-to-frames) ·
-[the programs](#programs) · [running forever in a browser](#running-forever-in-a-browser) ·
+[the programs](#programs) · [a CPU](#a-cpu-the-wireworld-computers-instruction-set) ·
+[running forever in a browser](#running-forever-in-a-browser) ·
 [clock speed](#clock-speed) · [how it is checked](#how-it-is-checked) · [notes from the work](#notes-from-the-work)
 
 ## One macroblock is one instruction
@@ -302,6 +314,67 @@ When a vector lands between pixels, the decoder interpolates (section 8.4.2.2 of
 
 *`tunnel.mp4` with its crop ignored, at half size (`python -m h264cpu glassbox tunnel`).*
 
+### A CPU: the Wireworld computer's instruction set
+
+The Wireworld computer is a stored-program computer built in Wireworld, a cellular automaton for
+electronics.[^owen] Its instruction set is one instruction, `MOV Rd, Rs`, over 64 sixteen-bit registers.
+The program and its constants live in the registers, and some registers compute:
+
+| Register | Read | Write |
+|---|---|---|
+| R0 | 0 | the display |
+| R1–R52, R60 | the value | the value |
+| R53, R54 | R54 AND NOT R53; R53 AND NOT R54 | the value |
+| R56 | R55 if R56 ≠ 0, else R57 | the value |
+| R58, R59 | R58 rotated right; R59 rotated left | the value |
+| R61 | R60 + R61, ones' complement | the value |
+| R62 | NOT R62 | the value |
+| R63 | the program counter | a branch |
+
+Instructions are prefetched, so there is one branch delay slot. Michael Fryers' 24-instruction program
+tests odd numbers for primality by repeated subtraction and writes each prime to R0.
+
+**Why not run the Wireworld cells.** The computer's clock is 2,304 Wireworld generations per
+instruction, because an electron must run up its register bank and back. A generation of Wireworld would
+take at least five frames here, like a generation of Life, so one instruction would take about three
+minutes. Built directly as a circuit, an instruction takes 17 frames, about 0.28 seconds: roughly 700
+times faster.
+
+**The machine.** Every field is 16 columns by 64 rows. Bit k of register r is cell (r, k), and a
+one-word signal holds its word in every row. With the gates of [the computation model](#the-computation-model):
+- **Reading a register.** A decoder compares the instruction's six-bit source field with a constant that
+  holds each row's own number, and ORs the mismatches along each row: then only the selected row is 0.
+  AND the bank with that row, and OR all 64 rows together with a butterfly of cyclic row shifts (1, 2,
+  4, ..., 32). The result is the word, back in every row, ready to be the next instruction's operand.
+- **Writing.** The bank keeps every row except the destination's, which takes the value.
+- **The computing registers.** R53 and R54 read the bank one row up or down; R58 and R59 read one
+  column over, on the torus, so rotation is free. The adder is a carry-lookahead adder whose carries run
+  cyclically round the 16 columns, which is exactly ones' complement's end-around carry.
+- **The circulating carry.** Owen's write-up asks the reader to check that one subtraction in the
+  program always gives "plus zero". In plain ones' complement, p + (−p) is `0xffff`, "minus zero", and
+  the program would never find 3. The Wireworld adder runs continuously in a loop. When every bit only
+  propagates, nothing decides the carry going round, so it keeps its last value, and p + (−p) is
+  `0x0000` when a carry was circulating. The circuit keeps that bit as state too.
+- **The display.** Bit k of R0 adds the decimal digits of 2^k into five digit sums; five carry steps,
+  each counting which of the thresholds 10, 20, ..., 150 a sum reaches, give the decimal digits. A
+  picture field draws the seven segments in 8×8 blocks, each reading its segment signal.
+
+The critical path, from the instruction register through decoding, selecting, adding and writing back,
+is 17 frames, so one instruction takes 17 frames and 17 copies of the machine are interleaved in the
+pipeline. `circuit.py` schedules the gates: every op runs one stage after its latest input and reads
+each input that many frames back, through relay copies where that would be more than 15 frames. The
+whole machine is 334 fields in a 2048×1360 frame.
+
+| Prime | 2 | 3 | 5 | 7 | 11 | 13 | 23 | 59 | 97 |
+|---|---|---|---|---|---|---|---|---|---|
+| Instruction | 1 | 13 | 42 | 86 | 195 | 295 | 914 | 5,790 | 15,999 |
+| On screen at 60 fps | 1.1 s | 4.5 s | 12.8 s | 25.2 s | 56 s | 1 min 24 s | 4 min 20 s | 27 min | 76 min |
+
+<img src="docs/images/primes_machine.jpg" alt="The whole 2048x1360 frame of primes.mp4 at half size: the red seven-segment display at the top left, and 333 grey fields of vertical stripes, among them the register bank, the decoders and the adder">
+
+*`primes.mp4` with its crop ignored, at half size (`python -m h264cpu glassbox primes`). Words are copied
+into all 64 rows of a field, hence the stripes.*
+
 ## Running forever in a browser
 
 The [page](https://fmindstormer.github.io/h264cpu/) never downloads a video. You draw a pattern, and
@@ -341,6 +414,9 @@ For Life, that is about a billion weighted 8-bit samples a second on one core. O
 (Electron 38), decoding in software on 2 cores with no GPU, ran Life at 350–470 frames a second flat out
 and the tunnel at 100–130. On an M4 Mac, the same Chromium decoding through VideoToolbox ran Life at
 about 650 and the tunnel at about 200. Phones have not been timed.
+
+On the M4 itself, single-threaded ffmpeg 9 decodes Life at 896 frames a second, the tunnel at 606 and
+`primes.mp4` at 789: 46 instructions a second.
 
 ## How it is checked
 
@@ -385,6 +461,11 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
   too. Before that, QuickTime Player and the Claude desktop app played `spiral.mp4` correctly by eye,
   and a screenshot of an earlier spiral build matched ffmpeg's decode cell for cell.
 
+- **The CPU.** After every instruction, `primes.mp4`'s state in the decoded frame (the 64 registers, the
+  program counter, the instruction register, the display and the circulating carry) equals a reference
+  model of the instruction set. The model reproduces Owen's run: 59 is written at instruction 5,790,
+  13.3 million generations at 2,304 a cycle, against his "about 14 million".
+
 `pytest` runs the same checks on 3-second versions of each program, and CI runs them on every push.
 
 ## Notes from the work
@@ -401,6 +482,16 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
   and 63 and both offsets 127 at L = 7, the standard gives 254 and ffmpeg's NEON code gives 0. Its C code
   (`-cpuflags 0`) and VideoToolbox both give 254. The programs never combine weights and offsets that
   large, so all four files still decode exactly there; the writer test now decodes with the C code.
+- **The Wireworld computer came first as cells.** An 800×600 version of it runs in plain NumPy, and
+  13% of its cells are wire, so a sparse layout fit the level. Owen's own figures ended it: 2,304
+  generations per instruction is minutes per instruction here. The instruction set, built directly, is
+  hundreds of times faster.
+- **frame_num limits how far back a frame can read.** The 16 program frames differ only in a 4-bit
+  frame_num, so a reference 16 frames back has the current frame's number, which H.264 forbids. The CPU's
+  first build read that far, and ffmpeg misread slice headers from then on. Reads now stop at 15 frames
+  back, through relay copies.
+- **An L = 7 slice needs an illegal weight.** Unused macroblocks copy the previous frame through a list
+  entry of weight 2^L, which is 128 when L = 7, one beyond the limit. The display first used L = 7.
 - **Players ignore the crop's left and top offsets.** An early spiral build put the display field in the
   middle of the frame. QuickTime and the Claude desktop app showed the top-left field instead.
   - A screenshot matched ffmpeg's decode of that field cell for cell, in 3580 of 3584 visible cells.
@@ -437,6 +528,7 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
     python -m h264cpu spiral --seconds 10
     python -m h264cpu turing --no-check
     python -m h264cpu tunnel            # 1920x1080; checking all 1800 frames takes a few minutes
+    python -m h264cpu primes            # the CPU; checks the machine's state after every instruction
     python -m h264cpu life --hwaccel videotoolbox   # check every frame on Apple's hardware decoder
     python -m h264cpu glassbox life     # the whole frame, labelled (needs ffmpeg with libx264)
     python -m h264cpu web               # the page in docs/
@@ -449,7 +541,8 @@ To write a new program, start from `h264cpu/programs/life.py`. It is about 100 l
   motion-vector range;
 - a starting state.
 
-For a picture field and its warp, see `tunnel.py`.
+For a picture field and its warp, see `tunnel.py`. For a circuit of gates, scheduled for you, see
+`circuit.py` and `primes.py`.
 
 ## Limits
 
@@ -457,14 +550,18 @@ For a picture field and its warp, see `tunnel.py`.
   - Life on 200×200 cells;
   - Life on 128×128 inside the tunnel's 1920×1080 picture;
   - the 69-field spiral program on 64×64;
-  - the 70-field Turing program on 104×104.
-- **Starting state.** It is stored as raw samples: from 0.8 MB (Turing) to 5.1 MB (Life) of each file.
+  - the 70-field Turing program on 104×104;
+  - the 334-field CPU, at 66% of the rate.
+- **The CPU's program.** It is fixed when the file is written: the registers' starting values. Writing
+  another program means changing `PROGRAM` in `primes.py`.
+- **Starting state.** It is stored as raw samples: from 0.8 MB (Turing) to 5.1 MB (Life) of each file,
+  and 4.0 MB for the CPU, whose 334 fields include 48 constants.
 - **Decoders.** Checked frame by frame: ffmpeg, Chromium's software decoder (ffmpeg inside), and Apple's
   VideoToolbox on an M4 Mac, both through ffmpeg and inside Chromium.
   - Untested: Windows Media Foundation, Android, and GPU decoding in browsers on Windows and Linux.
   - If a player shows something else, please open an issue naming the player and system.
-- **Memory.** The decoder works on frames up to 4032×832 (3712×1088 for the tunnel), more than players
-  show.
+- **Memory.** The decoder works on frames up to 4032×832 (3712×1088 for the tunnel, 2048×1360 for the
+  CPU), more than players show.
 - **The endless page.** It needs WebCodecs with H.264: Chrome and Edge, Safari 16.4 or later, Firefox 130
   or later on desktop.[^webcodecs] A decoder slower than the program's macroblock rate runs it slower, never skipping a frame,
   since every frame is a step of the computation.
@@ -487,7 +584,8 @@ includes a video codec. The nearest relatives:
   - How this differs: Video2NAND showed first that a standard video decoder computes, with no exploit,
     as here. Its circuits are combinational and settle within one frame. Here inter frames carry the
     state: the decoded picture buffer is memory, each frame is a clock tick, and a repeated program frame
-    runs forever. That is what cellular automata, and a universal machine up to the frame's size, need.
+    runs forever. That is what cellular automata, and a universal machine up to the frame's size, need;
+    `primes.mp4` runs a stored-program computer on it.
     The tool differs too: Video2NAND's gates work on black and white, while weighted prediction does
     arithmetic on 8-bit values, such as Life's neighbour counts and the Turing program's blurs.
 - **JPEG XL predictor art (2021).**
@@ -528,9 +626,10 @@ includes a video codec. The nearest relatives:
 | `h264cpu/writer.py` | Bitstream writer: parameter sets, grey + PCM IDR frames, PCM and skipped P frames, weighted B frames (16×16 or 8×8 quadrants, quarter-pixel vectors) with skip runs, motion-vector and direct prediction. |
 | `h264cpu/machine.py` | Fields (boards of cells, or pictures) and ops (weighted predictions, or warps) → slices, reference lists, motion vectors and frames. Also the simulator and the level checks. |
 | `h264cpu/layout.py` | Placement by annealing within the motion-vector range. |
+| `h264cpu/circuit.py` | Circuits of bit gates (OR, AND-NOT, NOT, shifts on the torus) scheduled into pipeline stages, with read delays, relays and halos worked out. |
 | `h264cpu/mp4.py` | A minimal MP4 muxer (moov first), byte-identical to the browser's. |
 | `h264cpu/verify.py` | Decodes with ffmpeg and compares every frame with the simulation. |
-| `h264cpu/programs/` | `life.py`, `spiral.py`, `turing.py`, `tunnel.py`. |
+| `h264cpu/programs/` | `life.py`, `spiral.py`, `turing.py`, `tunnel.py`, and `primes.py`: the CPU, its reference model and its display. |
 | `h264cpu/glassbox.py` | Viewing copies: the whole frame, labelled. |
 | `h264cpu/web.py`, `web/` | The page: `h264cpu.js` writes the stream in the browser and feeds it to the decoder forever (WebCodecs), or writes an MP4; `page.html` is the page. |
 | `docs/` | The built page, for GitHub Pages. |
@@ -561,3 +660,4 @@ MIT. See [LICENSE](LICENSE).
 [^saol]: E. D. Scheirer and B. L. Vercoe, "[SAOL: The MPEG-4 Structured Audio Orchestra Language](https://doi.org/10.1162/014892699559742)", *Computer Music Journal* 23(2), 1999, pp. 31–51.
 [^truetype]: Apple, *TrueType Reference Manual*, "[The TrueType Instruction Set](https://developer.apple.com/fonts/TrueType-Reference-Manual/RM05/Chap5.html)".
 [^llama]: S. Fuglede Jørgensen, "[llama.ttf](https://fuglede.github.io/llama.ttf/)", 2024.
+[^owen]: M. Owen, "[The Wireworld computer](https://www.quinapalus.com/wi-index.html)", Quinapalus, 2004: the design by David Moore and Mark Owen (1990–92), its [instruction set](https://www.quinapalus.com/wires10.html), and Michael Fryers' prime program with its disassembly ([the final design](https://www.quinapalus.com/wires11.html)).
