@@ -1,7 +1,7 @@
 // Browser test for the page: Electron (Chromium with H.264) loads the built page, lets it run, and records
 // what the decoder produced. Usage: electron harness.cjs <page url?rt=R#program> <out.json> <shot prefix> <F>
 // R: frames hashed in real time from frame 0; F: flat out, every 97th frame up to frame F is hashed.
-// Run under xvfb-run. tests/test_browser.py checks the result against the simulation.
+// Run under xvfb-run on Linux. tests/test_browser.py checks the result against the simulation.
 const { app, BrowserWindow, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -51,6 +51,8 @@ app.whenReady().then(async () => {
     result.pause = { during: p1 - p0, after: p2 - p1 };
     // 3. flat out, with the whole machine shown: every 97th frame up to F
     await js(`window.__cap.want = (i) => i % 97 === 0 || i === ${F};
+      window.__cap.dumpLuma = (i) => window.__cap.formats.size === 1 && [...window.__cap.formats][0].endsWith("limited")
+        && (i === ${F} || i === ${F} - ${F} % 97 - 97);
       document.querySelector('[data-speed="fast"]').click();
       const b = document.getElementById("whole-box"); b.checked = true; b.dispatchEvent(new Event("change")); true`);
     const t3 = await waitFor(`window.__cap.maxIndex >= ${F} && window.__cap.pending === 0`, 900000, "fast frames");
@@ -63,7 +65,7 @@ app.whenReady().then(async () => {
     const t4 = Date.now();
     while (!downloads.length && Date.now() - t4 < 60000) await sleep(100);
     result.downloads = downloads;
-    const cap = await js(`(() => { const c = window.__cap; return { hashes: c.hashes, fed: c.fed, keys: c.keys, order: c.order,
+    const cap = await js(`(() => { const c = window.__cap; return { hashes: c.hashes, lumaHashes: c.lumaHashes, lumas: c.lumas, fed: c.fed, keys: c.keys, order: c.order,
       formats: [...c.formats], errors: c.errors, decoders: c.decoders }; })()`);
     Object.assign(result, cap);
     // 5. a new run (a preset) starts a new decoder from frame 0

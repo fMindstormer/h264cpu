@@ -1,7 +1,8 @@
 """The page in a real browser engine: Electron's Chromium (which decodes H.264) runs docs/index.html, and
 every frame its decoder hands the page must be the frame the simulation predicts, sample for sample.
 
-Needs Electron (npm install --prefix tests/browser) and xvfb-run; skipped otherwise."""
+Needs Electron (npm install --prefix tests/browser), and xvfb-run except on macOS; skipped otherwise."""
+import base64
 import functools
 import hashlib
 import http.server
@@ -9,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -20,24 +22,49 @@ from h264cpu.programs import life, tunnel
 
 HERE = Path(__file__).resolve().parent / "browser"
 ELECTRON = HERE / "node_modules" / ".bin" / "electron"
-pytestmark = pytest.mark.skipif(not ELECTRON.exists() or shutil.which("xvfb-run") is None,
+XVFB = shutil.which("xvfb-run")
+pytestmark = pytest.mark.skipif(not ELECTRON.exists() or (XVFB is None and sys.platform != "darwin"),
                                 reason="needs Electron (npm install --prefix tests/browser) and xvfb-run")
 
 
-def frame_hash(planes):
-    return hashlib.sha256(b"".join(np.ascontiguousarray(p, dtype=np.uint8).tobytes() for p in planes)).hexdigest()
+def frame_hash(planes, fmt="I420", table=None):
+    # as VideoFrame.copyTo lays the frame out: I420 is three planes, NV12 interleaves Cb and Cr. With a table
+    # (limited range), the luma alone, through the table.
+    y, cb, cr = planes
+    if table is not None:
+        parts = (table[y],)
+    else:
+        parts = (y, np.stack([cb, cr], -1)) if fmt == "NV12" else (y, cb, cr)
+    return hashlib.sha256(b"".join(np.ascontiguousarray(p, dtype=np.uint8).tobytes() for p in parts)).hexdigest()
 
 
-def expected_hashes(m, init, frames):
-    want, out = set(frames), {}
+def simulated(m, init, frames):
+    """(frame, planes) of the simulation for each of frames, in order."""
+    want = set(frames)
     history = [init] * (m.max_delay() + 1)
     for f in range(max(frames) + 1):
         if f >= m.first_program_frame:
             history.append(m.step(history))
             del history[0]
         if f in want:
-            out[f] = frame_hash(m.render(history[-1]) if f >= m.first_program_frame else m.warmup_frame(init, None, f))
-    return out
+            yield f, m.render(history[-1]) if f >= m.first_program_frame else m.warmup_frame(init, None, f)
+
+
+def range_table(pairs):
+    """Chromium on macOS decodes through VideoToolbox and hands frames back converted to limited range: the
+    chroma through a colour matrix, the luma through a table within 1 of 16 + 219 y / 255 (124 and 209, for
+    two, come back one higher). Learn that table from whole luma planes (page, simulation): each simulated
+    value must always come back as the same value, which a decoding error would break."""
+    t = np.full(256, -1)
+    for page, sim in pairs:
+        for v in np.unique(sim):
+            got = np.unique(page[sim == v])
+            assert len(got) == 1 and t[v] in (-1, got[0]), f"luma {v} came back as {got}, and as {t[v]} before"
+            t[v] = got[0]
+    formula, seen = (np.arange(256) * 438 + 255) // 510 + 16, t >= 0
+    assert (abs(t[seen] - formula[seen]) <= 1).all(), t
+    t[~seen] = formula[~seen]
+    return t.astype(np.uint8)
 
 
 PLANS = {"life": (360, 6000), "tunnel": (240, 970)}          # frames hashed in real time; flat out up to
@@ -58,7 +85,8 @@ def site(tmp_path_factory):
 def test_page_in_chromium(name, site, tmp_path):
     rt, fast = PLANS[name]
     env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
-    subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 1280x1600x24", str(ELECTRON), "--no-sandbox",
+    display = [XVFB, "-a", "-s", "-screen 0 1280x1600x24"] if XVFB else []      # macOS has a display
+    subprocess.run([*display, str(ELECTRON), "--no-sandbox",
                     str(HERE / "harness.cjs"), f"{site}?rt={rt}#{name}", str(tmp_path / "result.json"),
                     str(tmp_path / "shot"), str(fast)], env=env, check=True, timeout=1500)
     r = json.loads((tmp_path / "result.json").read_text())
@@ -78,9 +106,18 @@ def test_page_in_chromium(name, site, tmp_path):
     else:
         init, stored, crop, first = m.initial(tunnel.start_given(board)), tunnel.start(m)[1], tunnel.CROP, tunnel.FIRST
     frames = m.stream(init, 600, crop, stored=stored, first=first)   # also sets the first program frame
-    got = {int(k): v for k, v in r["hashes"].items()}
+    assert len(r["formats"]) == 1, r["formats"]
+    fmt, size, rng = r["formats"][0].split()
+    assert fmt in ("I420", "NV12"), fmt
+    table = None
+    if rng == "limited":
+        w, h = map(int, size.split("x"))
+        dumps = {int(k): np.frombuffer(base64.b64decode(v), np.uint8).reshape(h, w) for k, v in r["lumas"].items()}
+        assert len(dumps) == 2, sorted(dumps)
+        table = range_table((dumps[f], planes[0]) for f, planes in simulated(m, init, sorted(dumps)))
+    got = {int(k): v for k, v in r["lumaHashes" if table is not None else "hashes"].items()}
     assert set(range(rt)) <= set(got) and fast in got
-    want = expected_hashes(m, init, sorted(got))
+    want = {f: frame_hash(planes, fmt, table) for f, planes in simulated(m, init, sorted(got))}
     bad = [f for f in sorted(got) if got[f] != want[f]]
     assert not bad, f"{len(bad)} of {len(got)} frames differ, first {bad[:5]}"
 
