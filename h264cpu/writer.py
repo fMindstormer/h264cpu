@@ -17,7 +17,7 @@ import re
 
 import numpy as np
 
-LOG2_MAX_FRAME_NUM = 4            # frame_num counts 0..15 and wraps; at most 8 reference frames are kept
+LOG2_MAX_FRAME_NUM = 4            # frame_num counts 0..15 and wraps, so a reference is at most 15 frames back
 MAX_FRAME_NUM = 1 << LOG2_MAX_FRAME_NUM
 
 

@@ -20,7 +20,7 @@ def digests(path, w, h):
 def test_program_decodes_exactly(name, tmp_path):
     m, frames, r = write(PROGRAMS[name], seconds=3, out=str(tmp_path), check=True, log=lambda *a: None)
     assert r["frames"] == 180 and r["identical"] == 180
-    if name != "turing":
-        assert r["generations"] >= 15
+    if name != "turing":                       # generations, or instructions for primes
+        assert r["generations"] >= (9 if name == "primes" else 15)
     w, h = m.width_mbs * 16, m.height_mbs * 16
     assert digests(tmp_path / f"{name}.mp4", w, h) == digests(tmp_path / f"{name}.264", w, h)

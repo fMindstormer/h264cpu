@@ -129,8 +129,9 @@ class Machine:
                 continue
             for (src, delay, dy, dx) in o.inputs:
                 assert not self.fields[src].image, f"{o.out}: cell ops read cell fields, not the picture {src}"
-                assert max(abs(dy), abs(dx)) <= self.fields[src].halo, f"{o.out} reads {src} off its board"
-                assert 1 <= delay <= 16
+                for d in (dy, dx):           # beyond the halo, a read wraps by whole macroblocks
+                    assert abs(d) <= self.fields[src].halo or d % 8 == 0, f"{o.out} reads {src} off its board"
+                assert 1 <= delay <= 15, f"{o.out} reads {delay} frames back; frame_num tells 16 apart"
             L = [o.L[0], o.L[1], o.L[1]]
             for p in range(PLANES):
                 if o.kind == "bi":
@@ -154,7 +155,7 @@ class Machine:
             for reads in quads:
                 assert len(reads) in (1, 2)
                 for (delay, mv, wo) in reads:
-                    assert 1 <= delay <= 16
+                    assert 1 <= delay <= 15
                     assert -8192 <= mv[0] <= 8191 and -2048 <= mv[1] <= 2047, f"{o.out}: vector {mv} beyond level 5.1"
                 for p in range(PLANES):
                     if len(reads) == 2:
@@ -185,7 +186,17 @@ class Machine:
             cx %= self.W
             cy %= self.H
         sx, sy = src_f.board
-        return (sx + 2 * (cx + dx) - mx, sy + 2 * (cy + dy) - my)
+        return (sx + 2 * self._wrapped(cx + dx, self.W, src_f.halo) - mx,
+                sy + 2 * self._wrapped(cy + dy, self.H, src_f.halo) - my)
+
+    @staticmethod
+    def _wrapped(c, n, halo):
+        """The first of 8 cells to read, from c on a torus of n cells: c itself if they lie on the board
+        or its halo, else c moved by whole turns of the torus."""
+        for r in (c, c % n, c % n - n):
+            if -halo <= r and r + 8 <= n + halo:
+                return r
+        raise AssertionError(f"cells {c}..{c + 7} wrap across the edge of a board of {n} with halo {halo}")
 
     def slices(self):
         """[(first_mb, end_mb, L, Lc)]: runs of macroblocks whose ops share weight denominators. An unused
@@ -241,6 +252,7 @@ class Machine:
         W = self.width_mbs
         out = []
         for (s, e, L, Lc) in self.slices():
+            assert L <= 6 and Lc <= 6, "the copy entry's weight 2^L must stay within -128..127"
             ident_y, ident_c = 1 << L, 1 << Lc
             copy = Entry(1, [(ident_y, 0), (ident_c, 0), (ident_c, 0)])
             l0, l1, idx0, idx1 = [copy], [copy], {}, {}

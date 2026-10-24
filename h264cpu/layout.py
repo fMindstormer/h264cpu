@@ -39,7 +39,10 @@ def anneal(m, slots, cls_of, iters=200000, seed=0, xl=2040, yl=504):
         (fx, fy), (sx, sy) = board(dst), board(src)
         bx, by = sx + 2 * dx - fx, sy + 2 * dy - fy
         w = 2 * W if m.fields[dst].halo else 0                 # halo macroblocks read the far side
-        over = max(0, -xl - (bx - w)) + max(0, bx + w - xl) + max(0, -yl - (by - w)) + max(0, by + w - yl)
+        wx, wy = w, (2 * m.H if w else 0)
+        h = m.fields[src].halo                                 # so do reads that wrap beyond the halo
+        wx, wy = (2 * m.W if abs(dx) > h else wx), (2 * m.H if abs(dy) > h else wy)
+        over = max(0, -xl - (bx - wx)) + max(0, bx + wx - xl) + max(0, -yl - (by - wy)) + max(0, by + wy - yl)
         return 1000 * over + abs(bx) / 64 + abs(by) / 16
 
     cur = [cost(i) for i in range(len(edges))]
