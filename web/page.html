@@ -1,4 +1,4 @@
-<title>Life in H.264</title>
+<title>h264cpu</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,7 +57,11 @@ header.top .wrap { display: grid; gap: 12px; }
 .bench.wide .decoded .well { aspect-ratio: 16 / 9; }
 .bench.wide .pattern .row button { padding: 6px 9px; font-size: 0.88rem; }
 @media (max-width: 760px) { .bench.wide { grid-template-columns: minmax(0, 1fr); } .bench.wide .pattern .well { max-width: 360px; } }
-body:not(.tunnel) .tunnel-only, body.tunnel .life-only { display: none; }
+body:not([data-prog="tunnel"]) .tunnel-only, body:not([data-prog="life"]) .life-only,
+body:not([data-prog="primes"]) .cpu-only, body[data-prog="primes"] .board-only { display: none; }
+body[data-prog="primes"] .bench.wide { grid-template-columns: minmax(0, 1fr) minmax(250px, 370px); }
+@media (max-width: 760px) { body[data-prog="primes"] .bench.wide { grid-template-columns: minmax(0, 1fr); } }
+.listing-code { margin: 0; font-size: 0.74rem; line-height: 1.6; overflow: auto; max-height: 520px; white-space: pre; }
 .bench.wide #out { image-rendering: auto; }
 .overlay { position: absolute; inset: auto 0 0 0; margin: 0; padding: 10px 12px; font-family: var(--mono); font-size: 0.75rem;
   color: var(--well-ink); background: linear-gradient(transparent, rgba(0, 0, 0, 0.75)); }
@@ -98,18 +102,20 @@ footer p { margin: 0; max-width: 72ch; }
 
 <header class="top">
   <div class="wrap">
-    <p class="eyebrow">h264cpu · Conway's Game of Life · H.264 Main profile, level 5.1</p>
-    <h1>Your video decoder runs Life</h1>
-    <p class="lede">Draw a pattern and this page writes a standard H.264 stream: your pattern, then <strong id="lede-prog">one small program frame</strong>, repeated forever. Nothing on this page computes a generation. Your browser's video decoder computes every one of them, for as long as you leave the page open.<span class="tunnel-only"> In the tunnel, the board sits in the middle of a 1920 × 1080 picture that the decoder also zooms and turns, every frame, from its own previous frame. Each streak is the history of one cell on the board's edge, one notch per generation.</span></p>
+    <p class="eyebrow">h264cpu · <span class="board-only">Conway's Game of Life</span><span class="cpu-only">the Wireworld computer's instruction set</span> · H.264 Main profile, level 5.1</p>
+    <h1>Your video decoder runs <span class="board-only">Life</span><span class="cpu-only">a CPU</span></h1>
+    <p class="lede board-only">Draw a pattern and this page writes a standard H.264 stream: your pattern, then <strong class="lede-prog">one small program frame</strong>, repeated forever. Nothing on this page computes a generation. Your browser's video decoder computes every one of them, for as long as you leave the page open.<span class="tunnel-only"> In the tunnel, the board sits in the middle of a 1920 × 1080 picture that the decoder also zooms and turns, every frame, from its own previous frame. Each streak is the history of one cell on the board's edge, one notch per generation.</span></p>
+    <p class="lede cpu-only">This page writes a standard H.264 stream: a computer's starting state, then <strong class="lede-prog">one program frame</strong>, repeated forever. The computer is the instruction set of David Moore and Mark Owen's Wireworld computer: 64 sixteen-bit registers and one instruction, MOV. It runs Michael Fryers' prime program from its own registers. Your browser's video decoder executes every instruction, one per 17 frames, and draws the display: 2, 3, 5, 7, 11, and on. Flat out, it runs as fast as your decoder decodes.</p>
     <div class="tabs" role="group" aria-label="Program">
       <button type="button" data-prog="tunnel" aria-pressed="true">Life tunnel<small>1920 × 1080</small></button>
       <button type="button" data-prog="life" aria-pressed="false">Life<small>400 × 400</small></button>
+      <button type="button" data-prog="primes" aria-pressed="false">Wireworld CPU<small>primes</small></button>
     </div>
   </div>
 </header>
 
 <main class="wrap bench">
-  <section class="panel pattern" aria-labelledby="h-pattern">
+  <section class="panel pattern board-only" aria-labelledby="h-pattern">
     <div class="panel-head"><h2 id="h-pattern">Pattern</h2><span class="label" id="board-label">200 × 200 cells · edges wrap</span></div>
     <div class="well"><canvas id="editor" width="200" height="200" tabindex="0" aria-label="Pattern editor. Click or drag to draw cells; drag over live cells to erase."></canvas></div>
     <div class="row" role="group" aria-label="Starting patterns">
@@ -121,6 +127,12 @@ footer p { margin: 0; max-width: 72ch; }
       <button type="button" data-preset="clear">Clear</button>
     </div>
     <p class="hint">Click or drag to draw. Start a drag on a live cell to erase. Then press Run.</p>
+  </section>
+
+  <section class="panel listing cpu-only" aria-labelledby="h-listing">
+    <div class="panel-head"><h2 id="h-listing">Program</h2><span class="label">registers 1–42</span></div>
+    <pre id="listing" class="listing-code mono"></pre>
+    <p class="hint">Fryers' program and its constants, as the registers hold them at the start. Each word is MOV Rd, Rs: destination in the high byte, source in the low. Execution starts at R1, with one branch delay slot.</p>
   </section>
 
   <section class="panel decoded" aria-labelledby="h-decoded">
@@ -163,7 +175,7 @@ footer p { margin: 0; max-width: 72ch; }
   <div class="strip-scroll"><svg id="strip" role="img" aria-label="Size of each access unit, logarithmic scale"></svg></div>
 </section>
 
-<section class="wrap how" aria-labelledby="h-how">
+<section class="wrap how board-only" aria-labelledby="h-how">
   <h2 id="h-how">How the decoder computes a generation</h2>
   <p class="prose">H.264 builds a B-frame macroblock by copying blocks from earlier frames and mixing them with explicit weights: <span class="mono">clip(((w0·a + w1·b + 2<sup>L</sup>) &gt;&gt; (L+1)) + o)</span>. Each field below is a <span class="nsize">200 × 200</span> board in its own region of the frame, rewritten every frame by one such mix, and motion vectors choose the cells it reads. One generation takes 6 frames, so at 60 frames a second the board advances 10 times a second. Flat out, it advances as fast as your decoder decodes.</p>
   <div class="scroll"><table>
@@ -182,13 +194,32 @@ footer p { margin: 0; max-width: 72ch; }
   </table></div>
 </section>
 
+<section class="wrap how cpu-only" aria-labelledby="h-how-cpu">
+  <h2 id="h-how-cpu">How the decoder executes an instruction</h2>
+  <p class="prose">H.264 builds a B-frame macroblock by copying blocks from earlier frames and mixing them with explicit weights. With weights 2 and 2 the mix of two fields of 0s and 255s is clip(a + b), an OR; with 2 and −2 it is clip(a − b), a AND NOT b. That is enough for any circuit. Here every field is 16 × 64 cells: bit k of register r is cell (r, k), so the register bank is one field. Reading a register masks its row and ORs the rows together by a butterfly of shifts. Rotating is reading one column over, because the board wraps round. The adder's carries run round the columns too, which gives ones' complement's end-around carry for free. The circuit is about 330 fields, and its longest path is 17 frames, so one instruction takes 17 frames. The display is part of the circuit: it turns the word into decimal digits and draws their segments.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Register</th><th>Reading it gives</th><th>Writing it</th></tr></thead>
+    <tbody>
+      <tr><td class="code">R0</td><td class="code">0</td><td>shows the word on the display</td></tr>
+      <tr><td class="code">R1 … R52</td><td class="code">the register</td><td>stores; the program and its constants live here</td></tr>
+      <tr><td class="code">R53, R54</td><td class="code">R54 AND NOT R53, R53 AND NOT R54</td><td>stores</td></tr>
+      <tr><td class="code">R55, R56, R57</td><td class="code">R56: R55 if R56 ≠ 0, else R57</td><td>stores</td></tr>
+      <tr><td class="code">R58, R59</td><td class="code">R58 rotated right, R59 rotated left</td><td>stores</td></tr>
+      <tr><td class="code">R60, R61</td><td class="code">R61: R60 + R61, ones' complement</td><td>stores</td></tr>
+      <tr><td class="code">R62</td><td class="code">NOT R62</td><td>stores</td></tr>
+      <tr><td class="code">R63</td><td class="code">the program counter</td><td>jumps, after one more instruction</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
 <footer class="wrap">
-  <p>Checked with the reference build: ffmpeg decodes every frame of these files to exactly what a simulation of these 18 ops predicts, sample for sample, and the board matches plain Game of Life every generation. Chromium decodes this page's stream to the same samples. Apple's decoder (QuickTime) plays the files too. If your browser shows something else, that is a decoder finding worth reporting.</p>
+  <p class="cpu-only">Checked with the reference build: ffmpeg and Apple's VideoToolbox decode every frame of the 30-second file to exactly what a simulation of the circuit predicts, sample for sample, and after every instruction the machine matches a plain model of the instruction set. Chromium decodes this page's stream to the same samples. If your browser shows something else, that is a decoder finding worth reporting.</p>
+  <p class="board-only">Checked with the reference build: ffmpeg decodes every frame of these files to exactly what a simulation of these 18 ops predicts, sample for sample, and the board matches plain Game of Life every generation. Chromium decodes this page's stream to the same samples. Apple's decoder (QuickTime) plays the files too. If your browser shows something else, that is a decoder finding worth reporting.</p>
   <p id="repo-line">Code, the Python compiler and the tests: the h264cpu repository.</p>
 </footer>
 
 <script type="module">
-import { source, stream, mp4, canDecode, Player } from "./h264cpu.js";
+import { source, stream, mp4, canDecode, Player, givenValues } from "./h264cpu.js";
 
 const FPS = 60;
 let N = 200;
@@ -255,12 +286,27 @@ const out = $("out"), octx = out.getContext("2d"), wctx = $("whole").getContext(
 let player = null, run = null, mode = "realtime", paused = false, showWhole = false, wholeNext = 0, fallbackUrl = null, saveFn = null;
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
 const human = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : n >= 1e3 ? (n / 1e3).toFixed(1) + " KB" : n + " B");
-const genOf = (f) => (f < prog.firstProgramFrame ? 0 : Math.floor((f - prog.firstProgramFrame) / 6) + 1);
+const genOf = (f) => (f < prog.firstProgramFrame ? 0 : Math.floor((f - prog.firstProgramFrame) / prog.period) + 1);
+const unit = () => (prog.program ? "instruction" : "generation");
 function say(text) { status.textContent = text; status.hidden = !text; }
 
 function given() {
+  if (prog.givenValues) return (prog.given0 = prog.given0 || givenValues(prog));   // the CPU always starts the same
   const S = Int32Array.from(board, (c) => c * 255);
   return { S: [S, S.slice(), S.slice()], H: [S.slice(), S.slice(), S.slice()], K: [0, 1, 2].map(() => new Int32Array(N * N).fill(255)) };
+}
+
+// the program as the registers hold it: MOV Rd, Rs words, then the constants
+const ROLE = { 0: "display", 53: "and-not", 54: "and-not", 55: "select", 56: "select", 57: "select",
+  58: "rotate", 59: "rotate", 60: "adder", 61: "adder", 62: "not" };
+function listing(program) {
+  return program.map(([r, w]) => {
+    const head = `R${r}`.padEnd(5) + w.toString(16).padStart(4, "0") + "  ";
+    if (r >= 30) return head + "constant";
+    const d = (w >> 8) & 63, s = w & 63, mov = `MOV R${d}, R${s}`.padEnd(14);
+    const notes = [d === 63 ? "jump" : ROLE[d], s === 63 ? "pc" : ROLE[s]].filter(Boolean);
+    return head + mov + (notes.length ? "; " + [...new Set(notes)].join(", ") : "");
+  }).join("\n");
 }
 
 function stop() {
@@ -281,7 +327,9 @@ async function start() {
   if (!(await canDecode(src))) return fallback("Your browser's WebCodecs can't decode H.264, so the page plays a 60-second file instead.");
   if (run !== mine) return;                                  // a newer run started meanwhile
   const c = prog.fields.find((f) => f.name === prog.crop);
-  const d = { x0: c.x0, y0: c.y0, w: c.shown[0], h: c.shown[1] };
+  // the CPU's display has fields right below it, whose chroma a browser's conversion can bleed into its
+  // last rows; its picture ends in background, so the page leaves out its last two rows and columns
+  const trim = prog.program ? 2 : 0, d = { x0: c.x0, y0: c.y0, w: c.shown[0] - trim, h: c.shown[1] - trim };
   player = new Player(src, {
     fps: FPS, mode,
     onFrame: (frame) => {
@@ -347,10 +395,10 @@ setInterval(() => {
   else if (fallbackUrl) f = Math.round(fallbackVideo.currentTime * FPS);
   else return;
   if (f < 0) return;
-  $("gen").textContent = `generation ${fmt(genOf(f))}`;
+  $("gen").textContent = `${unit()} ${fmt(genOf(f))}`;
   if (player) {
     const r = paused ? 0 : player.rate();
-    $("stats").textContent = `frame ${fmt(f)} · ${fmt(r)} frames/s, ${(r / 6).toFixed(1)} generations/s · ${human(player.fedBytes)} fed`;
+    $("stats").textContent = `frame ${fmt(f)} · ${fmt(r)} frames/s, ${(r / prog.period).toFixed(1)} ${unit()}s/s · ${human(player.fedBytes)} fed`;
   } else $("stats").textContent = `frame ${fmt(f)} of a 60-second file`;
 }, 250);
 
@@ -359,14 +407,14 @@ function table(src, ms) {
   const sum = (a, b) => src.head.slice(a, b).reduce((s, f) => s + f.length, 0);
   const progBytes = src.variants[first % 16].length;
   const rows = [
-    ["0", "IDR · I_PCM + grey I_16x16", "your pattern's first picture; everything else mid-grey", fmt(sum(0, 1)), "--bar-pcm"],
-    [c > 1 ? `1–${c}` : "1", "P · I_PCM + skipped", `the starting state of the other ${prog.chunks.flat().length} board fields, as raw samples${prog.fields.some((f) => f.image) ? "; the picture starts grey" : ""}`, fmt(sum(1, c + 1)), "--bar-pcm"],
+    ["0", "IDR · I_PCM + grey I_16x16", `${prog.program ? "the display's" : "your pattern's"} first picture; everything else mid-grey`, fmt(sum(0, 1)), "--bar-pcm"],
+    [c > 1 ? `1–${c}` : "1", "P · I_PCM + skipped", `the starting state of the other ${prog.chunks.flat().length} ${prog.program ? "fields: registers, constants and the circuit's wires" : "board fields"}, as raw samples${prog.fields.some((f) => f.image && !prog.given.includes(f.name)) ? "; the picture starts grey" : ""}`, fmt(sum(1, c + 1)), "--bar-pcm"],
     [`${c + 1}–${first - 1}`, "P · all skipped", "copies, so every delay in the program can read the start", fmt(sum(c + 1, first)), "--bar-copy"],
     [`${first} on`, "B · weighted prediction", "the program: 16 frames that differ only in a 4-bit frame counter, fed in turn for as long as the page runs", `${fmt(progBytes)} each`, "--bar-prog"],
   ];
   $("aus").innerHTML = rows.map(([r, k, w, b, col]) => `<tr><td class="code"><span class="swatch" style="background:var(${col})"></span>${r}</td><td class="code">${k}</td><td>${w}</td><td class="num">${b}</td></tr>`).join("")
     + `<tr><td class="code">—</td><td class="code">JavaScript</td><td>frames 0–${first - 1} written in your browser in ${fmt(ms)} ms; the program frames come compiled</td><td class="num"></td></tr>`;
-  $("lede-prog").textContent = `one ${human(progBytes)} program frame`;
+  document.querySelectorAll(".lede-prog").forEach((e) => { e.textContent = `one ${human(progBytes)} program frame`; });
   strip([...Array(48)].map((_, i) => [src.frame(i).length, i <= c ? "--bar-pcm" : i < first ? "--bar-copy" : "--bar-prog"]));
 }
 function strip(bars) {
@@ -418,19 +466,29 @@ async function choose(name) {
   } catch { say(`Could not load the compiled program (${name}.json).`); return; }
   if (progName !== name) return;
   prog = progs[name];
-  N = prog.N;
+  const c = prog.fields.find((f) => f.name === prog.crop), W = prog.widthMbs * 16, H = prog.heightMbs * 16;
+  const trim = prog.program ? 2 : 0;
+  out.width = c.shown[0] - trim; out.height = c.shown[1] - trim;
+  $("whole").width = W; $("whole").height = H;
+  $("machine-label").textContent = `${W} × ${H} · the same frames`;
+  $("nfields").textContent = prog.fields.length;
+  document.body.dataset.prog = name;
+  document.querySelector(".bench").classList.toggle("wide", c.shown[0] > c.shown[1]);
+  document.querySelector(".decoded .well").style.aspectRatio = `${c.shown[0]} / ${c.shown[1]}`;
+  $("gen").textContent = `${unit()} 0`;
+  if (prog.program) {
+    $("listing").textContent = listing(prog.program);
+    $("run").textContent = "Restart";
+    start();
+    return;
+  }
+  $("run").textContent = "Run this pattern";
+  N = prog.W;
   board = new Uint8Array(N * N);
   editor.width = editor.height = N;
   img = ectx.createImageData(N, N);
-  const c = prog.fields.find((f) => f.name === prog.crop), W = prog.widthMbs * 16, H = prog.heightMbs * 16;
-  out.width = c.shown[0]; out.height = c.shown[1];
-  $("whole").width = W; $("whole").height = H;
   $("board-label").textContent = `${N} × ${N} cells · edges wrap`;
-  $("machine-label").textContent = `${W} × ${H} · the same frames`;
-  $("nfields").textContent = prog.fields.length;
   document.querySelectorAll(".nsize").forEach((e) => { e.textContent = `${N} × ${N}`; });
-  document.body.classList.toggle("tunnel", name === "tunnel");
-  document.querySelector(".bench").classList.toggle("wide", c.shown[0] > c.shown[1]);
   usePreset("soup");
   start();
 }
@@ -440,5 +498,5 @@ document.querySelectorAll("[data-prog]").forEach((b) => b.addEventListener("clic
   choose(b.dataset.prog);
 }));
 setupSave();
-choose(location.hash === "#life" ? "life" : "tunnel");
+choose(["#life", "#primes"].includes(location.hash) ? location.hash.slice(1) : "tunnel");
 </script>

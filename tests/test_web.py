@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 
 from h264cpu import mp4
-from h264cpu.programs import life, tunnel
-from h264cpu.web import export
+from h264cpu.programs import life, primes, tunnel
+from h264cpu.web import export, primes_given
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,3 +40,17 @@ def test_browser_writer_matches_python_tunnel(tmp_path):
                     str(tmp_path / "board.bin"), "120", str(tmp_path / "js")], check=True)
     assert (tmp_path / "js.264").read_bytes() == b"".join(frames)
     assert (tmp_path / "js.mp4").read_bytes() == mp4.mux(frames, 1920, 1080, 60)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node")
+def test_browser_writer_matches_python_primes(tmp_path):
+    """The same for the CPU: 16 x 64 boards, starting values shipped in the JSON, the display picture given."""
+    m = primes.build()
+    given = primes_given(m)
+    export(m, given, tmp_path / "primes.json", crop_field=primes.CROP, name="primes", period=primes.PERIOD,
+           ship_given=True)
+    frames = m.stream(m.initial(given), 120, primes.CROP)
+    subprocess.run(["node", str(ROOT / "web" / "test_parity.mjs"), str(tmp_path / "primes.json"), "-", "120",
+                    str(tmp_path / "js")], check=True)
+    assert (tmp_path / "js.264").read_bytes() == b"".join(frames)
+    assert (tmp_path / "js.mp4").read_bytes() == mp4.mux(frames, primes.PIC_W, primes.PIC_H, 60)

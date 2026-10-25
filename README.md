@@ -15,7 +15,7 @@ one instruction every 17 frames, and shows each prime it finds in decimal on a s
 [![checks](https://github.com/fMindstormer/h264cpu/actions/workflows/checks.yml/badge.svg)](https://github.com/fMindstormer/h264cpu/actions/workflows/checks.yml)
 [![License: MIT](https://img.shields.io/badge/code-MIT-blue.svg)](LICENSE)
 
-**[Draw a pattern and watch your own browser's decoder run it, forever →](https://fmindstormer.github.io/h264cpu/)** ·
+**[Draw a pattern, or start the CPU, and watch your own browser's decoder run it, forever →](https://fmindstormer.github.io/h264cpu/)** ·
 [Download the videos](https://github.com/fMindstormer/h264cpu/releases/latest)
 
 <img src="docs/images/tunnel.webp" width="800" alt="The Life tunnel: a glowing Game of Life board in the centre of a dark blue picture, with streaks spiralling out of its edges and cooling from ember orange to blue">
@@ -377,11 +377,13 @@ into all 64 rows of a field, hence the stripes.*
 
 ## Running forever in a browser
 
-The [page](https://fmindstormer.github.io/h264cpu/) never downloads a video. You draw a pattern, and
-your browser's own decoder runs it.
+The [page](https://fmindstormer.github.io/h264cpu/) never downloads a video. You draw a pattern, or start
+the CPU, and your browser's own decoder runs it.
 - **Writing the stream.** The 16 program frames do not depend on the pattern, so Python compiles them
-  once, into `life.json` and `tunnel.json`. `h264cpu.js` writes the rest from your pattern: frame 0, the
-  stored state and the copies, byte for byte as Python would.
+  once, into `life.json`, `tunnel.json` and `primes.json`. `h264cpu.js` writes the rest from your
+  pattern: frame 0, the stored state and the copies, byte for byte as Python would. The CPU always starts
+  the same, so `primes.json` also carries its starting values: the registers, the circuit's constants and
+  the display's first picture.
 - **Why not Media Source Extensions.** MSE is the usual way to stream into a `<video>` element, and it
   cannot run these forever. Its buffer must be trimmed, and the standard's removal rule also removes
   every frame up to the next random access point,[^mse] because later frames may depend on removed ones. These
@@ -394,7 +396,7 @@ your browser's own decoder runs it.
     refresh.
   - Either way every frame is decoded, in order. Only showing is ever skipped.
 - **Converting only what is shown.** The page draws a `VideoFrame` view of just the displayed region, so
-  the browser converts 400×400 or 1920×1080 pixels to RGB, not the whole frame. In software, that alone
+  the browser converts 400×400, 1920×1080 or 592×208 pixels to RGB, not the whole frame. In software, that alone
   took Life flat out from about 245 to about 350–470 frames a second.
 
 Browsers without H.264 in WebCodecs get a 60-second MP4 instead, written in the page.
@@ -413,7 +415,7 @@ Decoding all 1800 frames: single thread, ffmpeg 6.1, a 2.1 GHz Xeon, best of two
 For Life, that is about a billion weighted 8-bit samples a second on one core. On the page, Chromium
 (Electron 38), decoding in software on 2 cores with no GPU, ran Life at 350–470 frames a second flat out
 and the tunnel at 100–130. On an M4 Mac, the same Chromium decoding through VideoToolbox ran Life at
-about 650 and the tunnel at about 200. Phones have not been timed.
+about 650, the tunnel at about 200 and the CPU at about 620 (36 instructions a second). Phones have not been timed.
 
 On the M4 itself, single-threaded ffmpeg 9 decodes Life at 896 frames a second, the tunnel at 606 and
 `primes.mp4` at 789: 46 instructions a second.
@@ -437,11 +439,11 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
 
   Breaking any one rounding, clamping or prediction rule on purpose makes them fail.
 - **The browser writer.** `docs/h264cpu.js` writes the same streams and MP4s as the Python writer, byte
-  for byte, for Life and for the tunnel.
+  for byte, for Life, the tunnel and the CPU.
 - **The page, in a browser.** `tests/test_browser.py` runs the built page in Chromium (Electron, which
   decodes H.264) for each program. It hashes frames as the decoder hands them to the page:
   - every frame of the first 4 to 6 seconds;
-  - flat out, every 97th frame up to frame 6,000 (Life) or 970 (tunnel).
+  - flat out, every 97th frame up to frame 6,000 (Life), 970 (tunnel) or 1,940 (CPU).
 
   Every hash must equal the simulation's. The test also checks pause and a second run, and that the
   download is the right file byte for byte.

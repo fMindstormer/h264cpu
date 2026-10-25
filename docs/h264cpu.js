@@ -117,10 +117,10 @@ export function pCopy(frameNum, nMbs) {
 // ------------------------------------------------------------------ the program's arithmetic
 const clip = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
 
-function evalOp(op, fetch, N) {
+function evalOp(op, fetch, n) {
   const out = [], [L, Lc] = op.L;
   for (let p = 0; p < 3; p++) {
-    const Lp = p === 0 ? L : Lc, prm = op.params[p], r = new Int32Array(N * N);
+    const Lp = p === 0 ? L : Lc, prm = op.params[p], r = new Int32Array(n);
     const a = fetch(op.inputs[0], p);
     if (op.kind === "bi") {
       const b = fetch(op.inputs[1], p), [w0, w1, o] = prm, add = 1 << Lp, sh = Lp + 1;
@@ -135,41 +135,53 @@ function evalOp(op, fetch, N) {
   return out;
 }
 
-function shifted(x, N, dy, dx) {
-  // out[y][x] = in[(y + dy) mod N][(x + dx) mod N]: what a motion vector fetches on the torus
+const dims = (prog) => [prog.W, prog.H];              // board size in cells
+
+function shifted(x, W, H, dy, dx) {
+  // out[y][x] = in[(y + dy) mod H][(x + dx) mod W]: what a motion vector fetches on the torus
   if (!dy && !dx) return x;
-  const r = new Int32Array(N * N);
-  for (let y = 0; y < N; y++) {
-    const sy = ((y + dy) % N + N) % N;
-    for (let xx = 0; xx < N; xx++) r[y * N + xx] = x[sy * N + (((xx + dx) % N) + N) % N];
+  const r = new Int32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const sy = ((y + dy) % H + H) % H;
+    for (let xx = 0; xx < W; xx++) r[y * W + xx] = x[sy * W + (((xx + dx) % W) + W) % W];
   }
   return r;
 }
 
 export function initial(prog, given) {
   // every field not given, computed once from the given ones (the pipeline full of the same wave)
-  const N = prog.N, vals = { ...given };
+  const [W, H] = dims(prog), vals = { ...given };
   let pending = prog.ops.filter((o) => !(o.out in vals));
   while (pending.length) {
     const ready = pending.filter((o) => o.inputs.every((i) => i[0] in vals));
     if (!ready.length) throw new Error("cannot order the ops");
-    for (const o of ready) vals[o.out] = evalOp(o, ([src, , dy, dx], p) => shifted(vals[src][p], N, dy, dx), N);
+    for (const o of ready) vals[o.out] = evalOp(o, ([src, , dy, dx], p) => shifted(vals[src][p], W, H, dy, dx), W * H);
     pending = pending.filter((o) => !(o.out in vals));
   }
   return vals;
 }
 
 export function render(prog, vals) {
-  // the decoded frame for field values at cell resolution; missing fields show the grey background
-  const W = prog.widthMbs * 16, H = prog.heightMbs * 16, N = prog.N;
+  // the decoded frame for field values at cell resolution, pictures as (y, cb, cr) planes of their size;
+  // missing fields show the grey background
+  const W = prog.widthMbs * 16, H = prog.heightMbs * 16, [BW, BH] = dims(prog);
   const y = new Uint8Array(W * H).fill(128), cb = new Uint8Array(W * H / 4).fill(128), cr = cb.slice();
   for (const f of prog.fields) {
+    if (!(f.name in vals) || !f.image) continue;
+    const v = vals[f.name], [fw, fh] = f.image;
+    for (let j = 0; j < fh; j++) y.set(v[0].subarray(j * fw, j * fw + fw), (f.y0 + j) * W + f.x0);
+    for (let j = 0; j < fh / 2; j++) {
+      const o = (f.y0 / 2 + j) * (W / 2) + f.x0 / 2;
+      cb.set(v[1].subarray(j * fw / 2, (j + 1) * fw / 2), o); cr.set(v[2].subarray(j * fw / 2, (j + 1) * fw / 2), o);
+    }
+  }
+  for (const f of prog.fields) {
     if (!(f.name in vals) || f.image) continue;
-    const v = vals[f.name], side = N + 2 * f.halo;
-    for (let j = 0; j < side; j++) {
-      const sj = (((j - f.halo) % N) + N) % N;
-      for (let i = 0; i < side; i++) {
-        const s = sj * N + ((((i - f.halo) % N) + N) % N);
+    const v = vals[f.name], sw = BW + 2 * f.halo, sh = BH + 2 * f.halo;
+    for (let j = 0; j < sh; j++) {
+      const sj = (((j - f.halo) % BH) + BH) % BH;
+      for (let i = 0; i < sw; i++) {
+        const s = sj * BW + ((((i - f.halo) % BW) + BW) % BW);
         const X = f.x0 + 2 * i, Y = f.y0 + 2 * j;
         y[Y * W + X] = y[Y * W + X + 1] = y[(Y + 1) * W + X] = y[(Y + 1) * W + X + 1] = v[0][s];
         const c = (Y / 2) * (W / 2) + X / 2;
@@ -181,12 +193,12 @@ export function render(prog, vals) {
 }
 
 function pcmBlocks(prog, frame, names) {
-  const out = new Map(), { y, cb, cr, W } = frame, N = prog.N;
+  const out = new Map(), { y, cb, cr, W } = frame, [BW, BH] = dims(prog);
   for (const f of prog.fields) {
     if (!names.has(f.name)) continue;
-    const side = (N + 2 * f.halo) * 2;
-    for (let my = f.y0 / 16; my < (f.y0 + side) / 16; my++) {
-      for (let mx = f.x0 / 16; mx < (f.x0 + side) / 16; mx++) {
+    const [fw, fh] = f.image || [(BW + 2 * f.halo) * 2, (BH + 2 * f.halo) * 2];
+    for (let my = f.y0 / 16; my < (f.y0 + fh) / 16; my++) {
+      for (let mx = f.x0 / 16; mx < (f.x0 + fw) / 16; mx++) {
         const by = new Uint8Array(256), bcb = new Uint8Array(64), bcr = new Uint8Array(64);
         for (let r = 0; r < 16; r++) by.set(y.subarray((my * 16 + r) * W + mx * 16, (my * 16 + r) * W + mx * 16 + 16), r * 16);
         for (let r = 0; r < 8; r++) {
@@ -203,11 +215,16 @@ function pcmBlocks(prog, frame, names) {
 const b64 = (s) => (typeof atob === "function" ? Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
   : new Uint8Array(Buffer.from(s, "base64")));
 
+export function givenValues(prog) {
+  // the starting values a program ships in its JSON, for one whose start the page does not edit
+  return Object.fromEntries(Object.entries(prog.givenValues).map(([n, planes]) => [n, planes.map((p) => Int32Array.from(b64(p)))]));
+}
+
 export function source(prog, given, { crop = true } = {}) {
   // The endless stream for a starting state. head: frame 0 IDR (grey + the display), P frames with the
   // stored starting state, copies; then the 16 program frames (they differ only in frame_num), forever.
   const W = prog.widthMbs * 16, H = prog.heightMbs * 16, nMbs = prog.widthMbs * prog.heightMbs;
-  const d = prog.fields.find((f) => f.name === prog.crop), [cw, ch] = d.shown || [2 * prog.N, 2 * prog.N];
+  const d = prog.fields.find((f) => f.name === prog.crop), [cw, ch] = d.shown;
   const box = crop ? [d.x0, W - d.x0 - cw, d.y0, H - d.y0 - ch] : [0, 0, 0, 0];
   const init = initial(prog, given), full = render(prog, init);
   const ps = [sps(prog.widthMbs, prog.heightMbs, box, prog.warm, prog.level, prog.fps), pps()];

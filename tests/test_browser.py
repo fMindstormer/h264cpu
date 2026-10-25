@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from h264cpu import mp4, web
-from h264cpu.programs import life, tunnel
+from h264cpu.programs import life, primes, tunnel
 
 HERE = Path(__file__).resolve().parent / "browser"
 ELECTRON = HERE / "node_modules" / ".bin" / "electron"
@@ -67,7 +67,7 @@ def range_table(pairs):
     return t.astype(np.uint8)
 
 
-PLANS = {"life": (360, 6000), "tunnel": (240, 970)}          # frames hashed in real time; flat out up to
+PLANS = {"life": (360, 6000), "tunnel": (240, 970), "primes": (240, 1940)}          # frames hashed in real time; flat out up to
 
 
 @pytest.fixture(scope="module")
@@ -98,12 +98,15 @@ def test_page_in_chromium(name, site, tmp_path):
     assert r["fed"] >= fast
 
     # every frame of the first seconds, and every 97th flat out, equal the simulation
-    prog = {"life": life, "tunnel": tunnel}[name]
+    prog = {"life": life, "tunnel": tunnel, "primes": primes}[name]
     m = prog.build()
-    board = np.array([c == "1" for c in r["board"]]).reshape(prog.N, prog.N)
-    if name == "life":
+    if name == "primes":                                        # no board: the CPU always starts the same
+        init, stored, crop, first = m.initial(web.primes_given(m)), None, primes.CROP, None
+    elif name == "life":
+        board = np.array([c == "1" for c in r["board"]]).reshape(prog.N, prog.N)
         init, stored, crop, first = m.initial(life.given(board)), None, "D", None
     else:
+        board = np.array([c == "1" for c in r["board"]]).reshape(prog.N, prog.N)
         init, stored, crop, first = m.initial(tunnel.start_given(board)), tunnel.start(m)[1], tunnel.CROP, tunnel.FIRST
     frames = m.stream(init, 600, crop, stored=stored, first=first)   # also sets the first program frame
     assert len(r["formats"]) == 1, r["formats"]

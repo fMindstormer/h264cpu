@@ -68,8 +68,9 @@ app.whenReady().then(async () => {
     const cap = await js(`(() => { const c = window.__cap; return { hashes: c.hashes, lumaHashes: c.lumaHashes, lumas: c.lumas, fed: c.fed, keys: c.keys, order: c.order,
       formats: [...c.formats], errors: c.errors, decoders: c.decoders }; })()`);
     Object.assign(result, cap);
-    // 5. a new run (a preset) starts a new decoder from frame 0
-    await js(`window.__cap.maxIndex = -1; document.querySelector('[data-preset="gun"]').click(); true`);
+    // 5. a new run (a preset, or the CPU's restart) starts a new decoder from frame 0
+    await js(`window.__cap.maxIndex = -1; (document.body.dataset.prog === "primes" ? document.getElementById("run")
+      : document.querySelector('[data-preset="gun"]')).click(); true`);
     await waitFor("window.__cap.decoders >= 2 && window.__cap.maxIndex >= 0", 60000, "second run");
     await sleep(2000);
     result.secondRun = await js(`({ decoders: window.__cap.decoders, keys: window.__cap.keys, errors: window.__cap.errors,

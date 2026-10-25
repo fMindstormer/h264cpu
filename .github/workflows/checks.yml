@@ -30,3 +30,4 @@ jobs:
           cmp /tmp/docs/h264cpu.js docs/h264cpu.js
           cmp /tmp/docs/life.json docs/life.json
           cmp /tmp/docs/tunnel.json docs/tunnel.json
+          cmp /tmp/docs/primes.json docs/primes.json
