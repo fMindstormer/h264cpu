@@ -54,10 +54,13 @@ app.whenReady().then(async () => {
       window.__cap.dumpLuma = (i) => window.__cap.formats.size === 1 && [...window.__cap.formats][0].endsWith("limited")
         && (i === ${F} || i === ${F} - ${F} % 97 - 97);
       document.querySelector('[data-speed="fast"]').click();
-      const b = document.getElementById("whole-box"); b.checked = true; b.dispatchEvent(new Event("change")); true`);
+      document.getElementById("machine-toggle").click(); true`);
     const t3 = await waitFor(`window.__cap.maxIndex >= ${F} && window.__cap.pending === 0`, 900000, "fast frames");
     result.fast = { frames: await js("window.__cap.maxIndex"), ms: t3 };
     result.stats2 = await js(`document.getElementById("stats").textContent`);
+    result.page = await js(`({ mode: document.getElementById("mode").dataset.kind, machine: !document.getElementById("machine").hidden,
+      regions: document.querySelectorAll("#regions [data-field]").length, legend: document.querySelectorAll("#legend li").length,
+      cycleLit: document.querySelectorAll("#cycle span.now").length })`);
     await w.webContents.capturePage().then((img) => fs.writeFileSync(shotPrefix + "-fast.png", img.toPNG()));
     // 4. download this run as a 10 s file
     await js(`window.__cap.want = () => false; const d = document.getElementById("dur"); d.value = "10";
@@ -75,6 +78,15 @@ app.whenReady().then(async () => {
     await sleep(2000);
     result.secondRun = await js(`({ decoders: window.__cap.decoders, keys: window.__cap.keys, errors: window.__cap.errors,
       status: document.getElementById("status").hidden ? "" : document.getElementById("status").textContent })`);
+    // 6. the keyboard draws: Space toggles the cell under the cursor (Life programs only)
+    result.keyboard = await js(`(() => {
+      const e = document.getElementById("editor");
+      if (document.body.dataset.prog === "primes") return null;
+      const n = e.width, at = () => e.getContext("2d").getImageData(n >> 1, n >> 1, 1, 1).data[0];
+      e.focus(); const before = at();
+      e.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })); const after = at();
+      return { before, after, cursor: !document.getElementById("cursor").hidden };
+    })()`);
   } catch (e) {
     result.error = String(e && e.stack || e);
   }

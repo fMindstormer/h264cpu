@@ -54,3 +54,17 @@ def test_browser_writer_matches_python_primes(tmp_path):
                     str(tmp_path / "js")], check=True)
     assert (tmp_path / "js.264").read_bytes() == b"".join(frames)
     assert (tmp_path / "js.mp4").read_bytes() == mp4.mux(frames, primes.PIC_W, primes.PIC_H, 60)
+
+
+def test_program_frames_do_not_depend_on_the_start(tmp_path):
+    """The central claim: the start-up frames carry the pattern, and the program frames after them are the same
+    16 frames whatever the pattern, repeating. So the state cannot be in them; it is in the decoded pictures."""
+    m = life.build()
+    a, b = life.soup(seed=1, density=0.2), life.soup(seed=2, density=0.5)
+    fa, fb = (m.stream(m.initial(life.given(x)), 60, "D") for x in (a, b))
+    start = m.first_program_frame
+    assert fa[:start] != fb[:start]
+    assert fa[start:] == fb[start:]
+    assert len(set(fa[start:start + 16])) == 16 and fa[start:start + 16] == fa[start + 16:start + 32]
+    pa, pb = (export(m, life.given(x), tmp_path / f"{n}.json")["programFrames"] for n, x in (("a", a), ("b", b)))
+    assert pa == pb

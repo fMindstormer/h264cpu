@@ -62,9 +62,9 @@ def page_document(page: str) -> str:
                         f"<p id=\"repo-line\">Code, the Python compiler and the tests: <a href=\"{REPO}\">{REPO[8:]}</a>.</p>")
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-            '<meta name="description" content="Draw a Game of Life pattern, or start a 16-bit CPU that finds primes. '
-            'The page hands your browser\'s H.264 decoder one program frame, forever, and the decoder computes '
-            'every generation and executes every instruction.">\n'
+            '<meta name="description" content="Can a video decoder execute a program? This page compiles Game of Life '
+            'or a small CPU into a standard H.264 stream; after start-up the same 16 instruction frames repeat, and '
+            'your browser\'s decoder computes every new state.">\n'
             '<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);'
             'padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}'
             '[hidden]{display:none!important}</style>\n</head>\n<body>\n' + page + '\n</body>\n</html>\n')

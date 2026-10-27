@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Draw a Game of Life pattern, or start a 16-bit CPU that finds primes. The page hands your browser's H.264 decoder one program frame, forever, and the decoder computes every generation and executes every instruction.">
+<meta name="description" content="Can a video decoder execute a program? This page compiles Game of Life or a small CPU into a standard H.264 stream; after start-up the same 16 instruction frames repeat, and your browser's decoder computes every new state.">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -13,11 +13,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Martian+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
 <style>
-/* Layout: a two-panel bench (pattern | decoded picture), then the file as a stream analyzer shows it */
+/* Layout: one experiment, input | repeated instructions | output; then the machine, the file and the maths */
 :root {
   --paper: #f2f3ef; --panel: #fbfbf9; --ink: #16191c; --muted: #596169; --rule: #d3d6cf;
   --ember: #b8461b; --ember-soft: #f3d9c8; --well: #060606; --well-ink: #d9d4c8; --cell: #f6e7c8;
-  --bar-pcm: #b8461b; --bar-copy: #9aa29a; --bar-prog: #2f6f73;
+  --bar-pcm: #b8461b; --bar-copy: #9aa29a; --bar-prog: #2f6f73; --prog-soft: #d7e8e8;
+  --g1: #e0583a; --g2: #e3a33b; --g3: #4fb3a9; --g4: #7f8cf0; --g5: #c470d6; --g6: #9aa29a; --g7: #6cc46c;
   --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
   --body: "Source Serif 4", Georgia, "Times New Roman", serif;
   --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -25,73 +26,100 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #111315; --panel: #171a1d; --ink: #e8e5df; --muted: #9ba2a8; --rule: #2b3035;
-    --ember: #ff7c43; --ember-soft: #3a2218; --bar-pcm: #ff7c43; --bar-copy: #6d746f; --bar-prog: #5fb3b3;
+    --ember: #ff7c43; --ember-soft: #3a2218; --bar-pcm: #ff7c43; --bar-copy: #6d746f; --bar-prog: #5fb3b3; --prog-soft: #17302f;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #111315; --panel: #171a1d; --ink: #e8e5df; --muted: #9ba2a8; --rule: #2b3035;
-  --ember: #ff7c43; --ember-soft: #3a2218; --bar-pcm: #ff7c43; --bar-copy: #6d746f; --bar-prog: #5fb3b3;
+  --ember: #ff7c43; --ember-soft: #3a2218; --bar-pcm: #ff7c43; --bar-copy: #6d746f; --bar-prog: #5fb3b3; --prog-soft: #17302f;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.55; }
-.wrap { max-width: 1120px; margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
+.wrap { max-width: 1180px; margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.05; text-wrap: balance; margin: 0; }
-h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); letter-spacing: -0.01em; }
-h2 { font-size: 1.55rem; letter-spacing: 0.01em; }
+h1 { font-size: clamp(2.3rem, 5.6vw, 4rem); letter-spacing: -0.01em; }
+h2 { font-size: 1.5rem; letter-spacing: 0.01em; }
+h2 .step { color: var(--ember); margin-right: 6px; }
 .eyebrow, .label { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .mono { font-family: var(--mono); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.dim { color: var(--muted); }
 a { color: var(--ember); text-underline-offset: 3px; }
-header.top { padding-block: 40px 24px; }
+header.top { padding-block: 40px 20px; }
 header.top .wrap { display: grid; gap: 12px; }
-.lede { max-width: 64ch; margin: 0; font-size: 1.12rem; }
-.lede strong { font-weight: 600; }
-.bench { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px; padding-block: 8px 32px; }
+.lede { max-width: 68ch; margin: 0; font-size: 1.12rem; }
+.where { margin: 4px 0 0; padding: 10px 14px; border-left: 3px solid var(--ember); background: var(--panel); max-width: 68ch;
+  font-family: var(--display); font-size: 1.15rem; letter-spacing: 0.01em; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tabs button { font-size: 1.05rem; padding: 9px 14px; }
+.tabs button small { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.06em; color: var(--muted); margin-left: 8px; font-weight: 400; }
+#blurb { margin: 0; max-width: 68ch; color: var(--muted); }
+
+/* the experiment */
+.bench { display: grid; gap: 16px; padding-block: 8px 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 230px) minmax(0, 1.25fr); grid-template-areas: "input program output"; }
+.bench.wide { grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-areas: "output output" "input program"; }
+@media (max-width: 920px) {
+  .bench, .bench.wide { grid-template-columns: minmax(0, 1fr); grid-template-areas: "input" "program" "output"; }
+  .bench .input .well { max-width: 420px; }
+}
+.input { grid-area: input; } .program { grid-area: program; } .output { grid-area: output; }
 .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start; }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
 .well { background: var(--well); border-radius: 3px; position: relative; aspect-ratio: 1; width: 100%; overflow: hidden; }
 #editor, #out, #fallback { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 #editor { touch-action: none; cursor: crosshair; }
 #fallback { object-fit: contain; }
-.stats { margin: 0; color: var(--muted); }
-.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-.tabs button { font-size: 1.05rem; padding: 9px 14px; }
-.tabs button small { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.06em; color: var(--muted); margin-left: 8px; font-weight: 400; }
-.bench.wide { grid-template-columns: minmax(0, 1fr) minmax(220px, 290px); }
-.bench.wide .decoded { order: -1; }
-.bench.wide .decoded .well { aspect-ratio: 16 / 9; }
-.bench.wide .pattern .row button { padding: 6px 9px; font-size: 0.88rem; }
-@media (max-width: 760px) { .bench.wide { grid-template-columns: minmax(0, 1fr); } .bench.wide .pattern .well { max-width: 360px; } }
-body:not([data-prog="tunnel"]) .tunnel-only, body:not([data-prog="life"]) .life-only,
-body:not([data-prog="primes"]) .cpu-only, body[data-prog="primes"] .board-only { display: none; }
-body[data-prog="primes"] .bench.wide { grid-template-columns: minmax(0, 1fr) minmax(250px, 370px); }
-@media (max-width: 760px) { body[data-prog="primes"] .bench.wide { grid-template-columns: minmax(0, 1fr); } }
-.listing-code { margin: 0; font-size: 0.74rem; line-height: 1.6; overflow: auto; max-height: 520px; white-space: pre; }
 .bench.wide #out { image-rendering: auto; }
+#cursor { position: absolute; border: 2px solid var(--ember); pointer-events: none; min-width: 8px; min-height: 8px; transform: translate(-25%, -25%); }
 .overlay { position: absolute; inset: auto 0 0 0; margin: 0; padding: 10px 12px; font-family: var(--mono); font-size: 0.75rem;
-  color: var(--well-ink); background: linear-gradient(transparent, rgba(0, 0, 0, 0.75)); }
+  color: var(--well-ink); background: linear-gradient(transparent, rgba(0, 0, 0, 0.8)); }
+.stats { margin: 0; color: var(--muted); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 button, select { font: 500 0.95rem var(--display); letter-spacing: 0.03em; color: var(--ink); background: var(--paper);
   border: 1px solid var(--rule); border-radius: 4px; padding: 7px 12px; cursor: pointer; }
 button:hover, select:hover { border-color: var(--muted); }
-button:focus-visible, select:focus-visible, input:focus-visible, #editor:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+button:focus-visible, select:focus-visible, #editor:focus-visible, #listing:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
 button.primary { background: var(--ember); border-color: var(--ember); color: #fff; font-weight: 600; }
-button[aria-pressed="true"] { border-color: var(--ember); background: var(--ember-soft); }
+button[aria-pressed="true"], button[aria-expanded="true"] { border-color: var(--ember); background: var(--ember-soft); }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; }
 .seg button:first-child { border-radius: 4px 0 0 4px; }
 .seg button + button { border-radius: 0 4px 4px 0; margin-left: -1px; }
 .seg button[aria-pressed="true"] { position: relative; }
-button:disabled { opacity: 0.55; cursor: progress; }
-label.check { display: inline-flex; gap: 6px; align-items: center; font-family: var(--display); font-size: 0.95rem; cursor: pointer; }
 .hint { margin: 0; font-size: 0.9rem; color: var(--muted); }
-#machine { padding-block: 0 32px; display: grid; gap: 10px; }
+.mode { margin: 0; font-size: 0.9rem; padding: 8px 10px; border-radius: 4px; background: var(--paper); border: 1px solid var(--rule); }
+.mode strong { font-family: var(--display); font-size: 1rem; letter-spacing: 0.02em; }
+#machine-toggle { justify-self: start; }
+.save { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.listing-code { margin: 0; font-size: 0.72rem; line-height: 1.6; overflow: auto; max-height: 460px; white-space: pre; }
+
+/* the repeated instructions */
+.cycle { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.cycle span { font-family: var(--mono); font-size: 0.7rem; text-align: center; padding: 7px 0; border-radius: 3px;
+  border: 1px solid var(--bar-prog); color: var(--bar-prog); background: transparent; }
+.cycle span.now { background: var(--bar-prog); color: var(--panel); }
+.cycle.idle span.now { background: transparent; color: var(--bar-prog); }
+.feedback { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; margin: 0; font-size: 0.9rem; }
+.feedback svg { width: 34px; height: 34px; color: var(--ember); }
+.kb { font-family: var(--mono); font-size: 0.8rem; }
+
+/* the machine */
+#machine { padding-block: 0 32px; display: grid; gap: 12px; }
 #machine .well { aspect-ratio: auto; }
 #whole { display: block; width: 100%; height: auto; }
+#regions { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 0.92rem; }
+.legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 2px; border: 2px solid; display: inline-block; }
+.pipe { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; margin: 0; padding: 12px; background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 6px; font-family: var(--mono); font-size: 0.76rem; }
+.pipe b { font-weight: 500; padding: 4px 8px; border-radius: 3px; border: 2px solid; background: var(--paper); }
+.pipe .arrow { color: var(--muted); padding: 0 4px; }
+.pipe .back { flex-basis: 100%; color: var(--muted); font-family: var(--body); font-size: 0.9rem; margin-top: 4px; }
+
 section.file, section.how { padding-block: 16px 32px; display: grid; gap: 14px; }
 .scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); }
 table { border-collapse: collapse; width: 100%; min-width: 680px; font-variant-numeric: tabular-nums; }
@@ -103,52 +131,66 @@ tr:last-child td { border-bottom: 0; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: baseline; }
 #strip { width: 100%; min-width: 680px; height: auto; display: block; }
 .strip-scroll { overflow-x: auto; }
-.prose { max-width: 66ch; margin: 0; }
+.prose { max-width: 68ch; margin: 0; }
 footer { padding-block: 8px 48px; color: var(--muted); font-size: 0.95rem; display: grid; gap: 8px; }
 footer p { margin: 0; max-width: 72ch; }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+body:not([data-prog="tunnel"]) .tunnel-only, body:not([data-prog="life"]) .life-only,
+body:not([data-prog="primes"]) .cpu-only, body[data-prog="primes"] .board-only { display: none; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
 
 <header class="top">
   <div class="wrap">
-    <p class="eyebrow">h264cpu · <span class="board-only">Conway's Game of Life</span><span class="cpu-only">the Wireworld computer's instruction set</span> · H.264 Main profile, level 5.1</p>
-    <h1>Your video decoder runs <span class="board-only">Life</span><span class="cpu-only">a CPU</span></h1>
-    <p class="lede board-only">Draw a pattern and this page writes a standard H.264 stream: your pattern, then <strong class="lede-prog">one small program frame</strong>, repeated forever. Nothing on this page computes a generation. Your browser's video decoder computes every one of them, for as long as you leave the page open.<span class="tunnel-only"> In the tunnel, the board sits in the middle of a 1920 × 1080 picture that the decoder also zooms and turns, every frame, from its own previous frame. Each streak is the history of one cell on the board's edge, one notch per generation.</span></p>
-    <p class="lede cpu-only">This page writes a standard H.264 stream: a computer's starting state, then <strong class="lede-prog">one program frame</strong>, repeated forever. The computer is the instruction set of David Moore and Mark Owen's Wireworld computer: 64 sixteen-bit registers and one instruction, MOV. It runs Michael Fryers' prime program from its own registers. Your browser's video decoder executes every instruction, one per 17 frames, and draws the display: 2, 3, 5, 7, 11, and on. Flat out, it runs as fast as your decoder decodes.</p>
+    <p class="eyebrow">h264cpu · standard H.264, Main profile, level 5.1</p>
+    <h1>Can a video decoder execute a program?</h1>
+    <p class="lede">This page compiles a small computation into a standard H.264 video stream. After a few start-up frames, the stream repeats the same 16 instruction frames, and each decoded picture supplies the state for the next step. Change the input, and watch your browser's video decoder run it.</p>
+    <p class="where">JavaScript builds and feeds the stream. The H.264 decoder updates the running state.</p>
     <div class="tabs" role="group" aria-label="Program">
-      <button type="button" data-prog="tunnel" aria-pressed="true">Life tunnel<small>1920 × 1080</small></button>
-      <button type="button" data-prog="life" aria-pressed="false">Life<small>400 × 400</small></button>
+      <button type="button" data-prog="life" aria-pressed="true">Game of Life<small>400 × 400</small></button>
       <button type="button" data-prog="primes" aria-pressed="false">Wireworld CPU<small>primes</small></button>
+      <button type="button" data-prog="tunnel" aria-pressed="false">Life tunnel<small>1920 × 1080</small></button>
     </div>
+    <p id="blurb"></p>
   </div>
 </header>
 
 <main class="wrap bench">
-  <section class="panel pattern board-only" aria-labelledby="h-pattern">
-    <div class="panel-head"><h2 id="h-pattern">Pattern</h2><span class="label" id="board-label">200 × 200 cells · edges wrap</span></div>
-    <div class="well"><canvas id="editor" width="200" height="200" tabindex="0" aria-label="Pattern editor. Click or drag to draw cells; drag over live cells to erase."></canvas></div>
+  <section class="panel input board-only" aria-labelledby="h-input">
+    <div class="panel-head"><h2 id="h-input"><span class="step">1</span>Input</h2><span class="label" id="board-label">starting pattern · 200 × 200 cells · edges wrap</span></div>
+    <div class="well"><canvas id="editor" width="200" height="200" tabindex="0" aria-describedby="editor-help"
+      aria-label="Starting pattern. Click or drag to draw; with the keyboard, arrow keys move, Space toggles a cell, Enter runs."></canvas><div id="cursor" hidden></div></div>
     <div class="row" role="group" aria-label="Starting patterns">
-      <button type="button" data-preset="soup">Random soup</button>
       <button type="button" data-preset="gun">Two glider guns</button>
+      <button type="button" data-preset="soup">Random soup</button>
       <button type="button" data-preset="rpent">R-pentomino</button>
       <button type="button" data-preset="acorn">Acorn</button>
       <button type="button" data-preset="fleet">Glider fleet</button>
       <button type="button" data-preset="clear">Clear</button>
     </div>
-    <p class="hint">Click or drag to draw. Start a drag on a live cell to erase. Then press Run.</p>
+    <p class="hint" id="editor-help">Click or drag to draw; start a drag on a live cell to erase. Keyboard: arrow keys move (Shift for 10), Space toggles, Enter runs. A preset runs at once.</p>
   </section>
 
-  <section class="panel listing cpu-only" aria-labelledby="h-listing">
-    <div class="panel-head"><h2 id="h-listing">Program</h2><span class="label">registers 1–42</span></div>
-    <pre id="listing" class="listing-code mono"></pre>
-    <p class="hint">Fryers' program and its constants, as the registers hold them at the start. Each word is MOV Rd, Rs: destination in the high byte, source in the low. Execution starts at R1, with one branch delay slot.</p>
+  <section class="panel input cpu-only" aria-labelledby="h-listing">
+    <div class="panel-head"><h2 id="h-listing"><span class="step">1</span>Input</h2><span class="label">the registers at the start</span></div>
+    <pre id="listing" class="listing-code mono" tabindex="0" aria-label="The CPU's program, register by register"></pre>
+    <p class="hint">Michael Fryers' prime program and its constants. Each word is MOV Rd, Rs: destination in the high byte, source in the low. Execution starts at R1, with one branch delay slot.</p>
   </section>
 
-  <section class="panel decoded" aria-labelledby="h-decoded">
-    <div class="panel-head"><h2 id="h-decoded">Decoded by your browser</h2><span id="gen" class="label">generation 0</span></div>
-    <div class="well">
+  <section class="panel program" aria-labelledby="h-program">
+    <div class="panel-head"><h2 id="h-program"><span class="step">2</span>Repeated instructions</h2></div>
+    <div class="cycle idle" id="cycle" role="img" aria-label="The 16 program frames, fed in turn; the highlighted one is being shown"></div>
+    <p class="hint"><span class="kb" id="prog-bytes">–</span> each. From frame <span id="first-prog">–</span> on, the decoder gets only these 16 frames, in turn, forever. They are identical except for a 4-bit frame counter, so they cannot carry the changing state.</p>
+    <p class="feedback">
+      <svg viewBox="0 0 34 34" aria-hidden="true"><path d="M27 17a10 10 0 1 1-4-8" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M24 3l-0.5 7.5L31 11" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+      <span>The state lives in the decoder's reference pictures: each decoded frame is read by the next ones. <span id="period-line"></span></span>
+    </p>
+  </section>
+
+  <section class="panel output" aria-labelledby="h-decoded">
+    <div class="panel-head"><h2 id="h-decoded"><span class="step">3</span>Output, decoded by your browser</h2><span id="gen" class="label">generation 0</span></div>
+    <div class="well" id="out-well">
       <canvas id="out" width="400" height="400" role="img" aria-label="Each frame as your browser's decoder outputs it"></canvas>
-      <video id="fallback" hidden muted playsinline loop autoplay aria-label="The video, as your browser's decoder computes it"></video>
+      <video id="fallback" hidden muted playsinline loop aria-label="The run as a finite video, decoded by your browser's player"></video>
       <p id="status" class="overlay" aria-live="polite">Writing the stream…</p>
     </div>
     <div class="row">
@@ -159,24 +201,31 @@ footer p { margin: 0; max-width: 72ch; }
       </span>
     </div>
     <p id="stats" class="stats mono" aria-live="off">&nbsp;</p>
-    <div class="row">
-      <label class="label" for="dur">This run as a file</label>
-      <select id="dur"><option value="10">10 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select>
-      <button type="button" id="save" hidden>Download .mp4</button>
+    <p id="mode" class="mode" aria-live="polite"><strong>Starting…</strong></p>
+    <div class="save">
+      <div class="row">
+        <label class="label" for="dur">Download this run</label>
+        <select id="dur"><option value="10">10 s</option><option value="30" selected>30 s</option><option value="60">60 s</option></select>
+        <button type="button" id="save" hidden>Download .mp4</button>
+      </div>
+      <p class="hint">The same stream as an ordinary MP4. Open it in a standalone player, such as VLC, QuickTime or mpv, and that player's decoder computes the same run, for as long as the file lasts.</p>
     </div>
-    <label class="check" id="whole-check"><input type="checkbox" id="whole-box"> Also show the whole machine (the frame without its crop)</label>
+    <button type="button" id="machine-toggle" aria-expanded="false" aria-controls="machine">See how the frame stores the machine</button>
   </section>
 </main>
 
 <section id="machine" class="wrap" hidden aria-labelledby="h-machine">
-  <div class="panel-head"><h2 id="h-machine">The whole machine</h2><span class="label" id="machine-label">4032 × 832 · the same frames</span></div>
-  <div class="well"><canvas id="whole" width="4032" height="832" role="img" aria-label="The whole decoded frame: every field"></canvas></div>
-  <p class="hint">The page decodes the whole frame and shows the top-left corner above. Here is all of it: <span id="nfields">18</span> fields, each rewritten every frame by one weighted prediction. Board fields store the same number in all three colour planes, which a player shows as green (0) to magenta (255). The top-left corner is what a normal player shows.</p>
+  <div class="panel-head"><h2 id="h-machine">How the frame stores the machine</h2><span class="label" id="machine-label">4032 × 832 · the same frames</span></div>
+  <p class="prose">This is the whole decoded frame, live, as your decoder outputs it, before the crop that players apply. No contrast stretching. A cell field holds the same number in all three colour planes, which a player shows as green for 0 through grey to magenta for 255. Each outlined region is one <em>field</em>, a board of cells that one weighted prediction rewrites every frame. <span id="machine-blurb"></span></p>
+  <ul class="legend" id="legend"></ul>
+  <div class="well"><canvas id="whole" width="4032" height="832" role="img" aria-label="The whole decoded frame, with its fields outlined"></canvas><svg id="regions" aria-hidden="true"></svg></div>
+  <h3>Where the next state comes from</h3>
+  <p class="pipe" id="pipe"></p>
 </section>
 
 <section class="wrap file" aria-labelledby="h-file">
   <h2 id="h-file">What your decoder is fed</h2>
-  <p class="prose">The page writes the first frames once, then hands your decoder the same 16 program frames over and over, through WebCodecs. The board lives in the decoder's reference frames. Nothing on the page keeps it.</p>
+  <p class="prose">JavaScript writes the first frames once: the starting state, as raw samples, then copies so that every delay in the program can read it. After that it only hands your decoder the 16 compiled program frames, over and over, through WebCodecs. The page keeps no copy of the state; it lives in the decoder's reference frames.</p>
   <div class="scroll"><table>
     <thead><tr><th>Access units</th><th>Coded as</th><th>What they carry</th><th style="text-align:right">Bytes</th></tr></thead>
     <tbody id="aus"></tbody>
@@ -205,7 +254,7 @@ footer p { margin: 0; max-width: 72ch; }
 
 <section class="wrap how cpu-only" aria-labelledby="h-how-cpu">
   <h2 id="h-how-cpu">How the decoder executes an instruction</h2>
-  <p class="prose">H.264 builds a B-frame macroblock by copying blocks from earlier frames and mixing them with explicit weights. With weights 2 and 2 the mix of two fields of 0s and 255s is clip(a + b), an OR; with 2 and −2 it is clip(a − b), a AND NOT b. That is enough for any circuit. Here every field is 16 × 64 cells: bit k of register r is cell (r, k), so the register bank is one field. Reading a register masks its row and ORs the rows together by a butterfly of shifts. Rotating is reading one column over, because the board wraps round. The adder's carries run round the columns too, which gives ones' complement's end-around carry for free. The circuit is about 330 fields, and its longest path is 17 frames, so one instruction takes 17 frames. The display is part of the circuit: it turns the word into decimal digits and draws their segments.</p>
+  <p class="prose">H.264 builds a B-frame macroblock by copying blocks from earlier frames and mixing them with explicit weights. With weights 2 and 2 the mix of two fields of 0s and 255s is clip(a + b), an OR; with 2 and −2 it is clip(a − b), a AND NOT b. Every field here is 16 × 64 cells: bit k of register r is cell (r, k), so the register bank is one field. The motion vectors are fixed, so the circuit cannot point at a register: it reads all 64 and keeps the one the instruction names, by masking its row and ORing the rows together with a butterfly of shifts. Rotating is reading one column over, because the board wraps round. The adder's carries run round the columns too, which gives ones' complement's end-around carry for free. The circuit is 334 fields, and its longest path is 17 frames, so one instruction takes 17 frames. The display is part of the circuit: it turns the word into decimal digits and draws their segments.</p>
   <div class="scroll"><table>
     <thead><tr><th>Register</th><th>Reading it gives</th><th>Writing it</th></tr></thead>
     <tbody>
@@ -222,8 +271,7 @@ footer p { margin: 0; max-width: 72ch; }
 </section>
 
 <footer class="wrap">
-  <p class="cpu-only">Checked with the reference build: ffmpeg and Apple's VideoToolbox decode every frame of the 30-second file to exactly what a simulation of the circuit predicts, sample for sample, and after every instruction the machine matches a plain model of the instruction set. Chromium decodes this page's stream to the same samples. If your browser shows something else, that is a decoder finding worth reporting.</p>
-  <p class="board-only">Checked with the reference build: ffmpeg decodes every frame of these files to exactly what a simulation of these 18 ops predicts, sample for sample, and the board matches plain Game of Life every generation. Chromium decodes this page's stream to the same samples. Apple's decoder (QuickTime) plays the files too. If your browser shows something else, that is a decoder finding worth reporting.</p>
+  <p><a href="https://github.com/fMindstormer/h264cpu/blob/main/notes/verification.md">How this is checked</a>: a NumPy simulation predicts every sample of every frame, and ffmpeg's decode of each file must equal it exactly; the Life boards are compared with an independent Life implementation and the CPU with a reference model of its instruction set; and a test runs this page in Chromium and compares the frames its decoder hands back. If your browser shows something else, that is a decoder finding worth reporting.</p>
   <p id="repo-line">Code, the Python compiler and the tests: <a href="https://github.com/fMindstormer/h264cpu">github.com/fMindstormer/h264cpu</a>.</p>
 </footer>
 
@@ -234,8 +282,32 @@ const FPS = 60;
 let N = 200;
 const $ = (id) => document.getElementById(id);
 const status = $("status");
-let prog = null, board = new Uint8Array(N * N), progName = "tunnel";
+const reducedMotion = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const forceFallback = new URLSearchParams(location.search).has("fallback");
+let prog = null, board = new Uint8Array(N * N), progName = null;
 const progs = {};
+
+// ---------- what each program is, and the regions of its frame
+const LIFE_PIPE = [["S", "the board"], ["p1 … p5", "neighbour pairs, the cell"], ["q1, q2", "sums"], ["c", "count"], ["t", "count and cell"], ["ge24, ge48", "two thresholds"], ["S", "the next board"]];
+const ABOUT = {
+  life: { blurb: "Conway's Game of Life on a 200 × 200 torus: 18 fields, one generation every 6 frames.", pipe: LIFE_PIPE },
+  tunnel: { blurb: "The same Life rule on a 128 × 128 board, in the middle of a 1920 × 1080 picture that the decoder also zooms and turns, every frame, from its own previous frame. Each streak is the history of one cell on the board's edge.", pipe: LIFE_PIPE },
+  primes: { blurb: "The instruction set of David Moore and Mark Owen's Wireworld computer, 64 sixteen-bit registers and one instruction (MOV), as a circuit of 334 fields. It runs Michael Fryers' prime program: one instruction every 17 frames, each prime shown in decimal.",
+    pipe: [["IR", "the instruction"], ["decoders", "which registers"], ["read", "mask and OR the bank"], ["compute", "adder, select, rotate…"], ["write", "into the bank"], ["IR, PC", "the next instruction"]] },
+};
+const GROUPS = {
+  life: [["Current board", "--g1", /^S$/], ["Neighbour calculations", "--g2", /^(p\d|q\d|c)$/], ["Rule evaluation", "--g3", /^(t|ge24|ge48)$/],
+    ["Display: glow and colour", "--g4", /^(d|H|r0|r1|D)$/], ["Constant 255", "--g6", /^K$/]],
+  primes: [["Registers and the adder's carry", "--g1", /^(B|R5[567]|R6[01]|C)$/], ["Instruction and program counter", "--g5", /^(IR|PC)$/],
+    ["Address decoders", "--g2", /^n(src|dst|pc|s56|s61|d\d+)/],
+    ["Reading, selecting, adding", "--g3", /^(nr|x5|x6|row62|ra|sel$|valgen|nz56|nnz56|v56|tgen|nb$|g\d|na$|p0|k0|np\d|t\d|circ|carry|sum|ncol0|c0|cnext)/],
+    ["Writing back, next address", "--g7", /^(val|seld|keep|put|d\d+$|npcw|lt\d|z|ones|inc|fsel|fetch)/],
+    ["Display logic and picture", "--g4", /^(DISP|ndisp|dec|dterm|dsum|tens|dshort|dge|dq|dx|digit|dv|dlo|dhi|ddist|dfar|deq|KD|nsm|segm|seg|D$)/], ["Constant 255", "--g6", /^K$/]],
+};
+GROUPS.tunnel = [["Zoomed history (a picture field)", "--g5", /^T$/], ...GROUPS.life];
+const PIPE_GROUP = { decoders: "Address decoders", read: "Reading, selecting, adding", compute: "Reading, selecting, adding", write: "Writing back, next address" };
+const KEY = { primes: { B: "register bank", IR: "IR", PC: "PC", C: "carry", DISP: "R0, the display word" } };   // named even among 334
+const groupOf = (name) => (GROUPS[progName] || []).find(([, , re]) => re.test(name));
 
 // ---------- patterns
 function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -267,14 +339,19 @@ const presets = {
 };
 function usePreset(name) { board.fill(0); presets[name](); drawEditor();
   document.querySelectorAll("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.preset === name)); }
+const unpress = () => document.querySelectorAll("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", "false"));
 
-// ---------- editor
-const editor = $("editor"), ectx = editor.getContext("2d");
-let img = ectx.createImageData(N, N);
+// ---------- editor: pointer, and keyboard with a cursor
+const editor = $("editor"), ectx = editor.getContext("2d"), cursorBox = $("cursor");
+let img = ectx.createImageData(N, N), cur = [100, 100];
 function drawEditor() {
   for (let i = 0; i < N * N; i++) { const o = i * 4, live = board[i];
     img.data[o] = live ? 246 : 6; img.data[o + 1] = live ? 231 : 6; img.data[o + 2] = live ? 200 : 6; img.data[o + 3] = 255; }
   ectx.putImageData(img, 0, 0);
+}
+function placeCursor() {
+  cursorBox.style.left = `${(cur[0] / N) * 100}%`; cursorBox.style.top = `${(cur[1] / N) * 100}%`;
+  cursorBox.style.width = cursorBox.style.height = `${(2 / N) * 100}%`;
 }
 let drawing = null, last = null;
 function cellAt(e) { const r = editor.getBoundingClientRect();
@@ -285,10 +362,20 @@ function paint(x0, y0, x1, y1) {
   drawEditor();
 }
 editor.addEventListener("pointerdown", (e) => { editor.setPointerCapture(e.pointerId); const [x, y] = cellAt(e);
-  drawing = board[y * N + x] ? 0 : 1; last = [x, y]; paint(x, y, x, y);
-  document.querySelectorAll("[data-preset]").forEach((b) => b.setAttribute("aria-pressed", "false")); });
+  drawing = board[y * N + x] ? 0 : 1; last = [x, y]; paint(x, y, x, y); unpress(); });
 editor.addEventListener("pointermove", (e) => { if (drawing === null) return; const [x, y] = cellAt(e); paint(last[0], last[1], x, y); last = [x, y]; });
 for (const ev of ["pointerup", "pointercancel"]) editor.addEventListener(ev, () => { drawing = null; });
+editor.addEventListener("focus", () => { placeCursor(); cursorBox.hidden = false; });
+editor.addEventListener("blur", () => { cursorBox.hidden = true; });
+editor.addEventListener("keydown", (e) => {
+  if (cursorBox.hidden) { placeCursor(); cursorBox.hidden = false; }       // focus events wait for the window's focus; keys don't
+  const step = e.shiftKey ? 10 : 1, moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+  if (moves[e.key]) { cur = [(cur[0] + moves[e.key][0] + N) % N, (cur[1] + moves[e.key][1] + N) % N]; placeCursor(); }
+  else if (e.key === " ") { const i = cur[1] * N + cur[0]; board[i] = board[i] ? 0 : 1; drawEditor(); unpress(); }
+  else if (e.key === "Enter") start();
+  else return;
+  e.preventDefault();
+});
 
 // ---------- running: the page writes the stream, your decoder computes, the canvas shows what it outputs
 const out = $("out"), octx = out.getContext("2d"), wctx = $("whole").getContext("2d"), fallbackVideo = $("fallback");
@@ -298,6 +385,12 @@ const human = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : n >= 1e3 ? (n / 
 const genOf = (f) => (f < prog.firstProgramFrame ? 0 : Math.floor((f - prog.firstProgramFrame) / prog.period) + 1);
 const unit = () => (prog.program ? "instruction" : "generation");
 function say(text) { status.textContent = text; status.hidden = !text; }
+function setMode(kind) {
+  $("mode").dataset.kind = kind;
+  $("mode").innerHTML = kind === "webcodecs"
+    ? "<strong>Live, through WebCodecs.</strong> The computation continues for as long as your decoder keeps decoding."
+    : "<strong>Fallback: a finite MP4.</strong> This browser can't feed its decoder frame by frame, so the page wrote a 60-second file. When it loops, the run starts again from the beginning.";
+}
 
 function given() {
   if (prog.givenValues) return (prog.given0 = prog.given0 || givenValues(prog));   // the CPU always starts the same
@@ -323,43 +416,49 @@ function stop() {
   if (fallbackUrl) { fallbackVideo.removeAttribute("src"); fallbackVideo.load(); URL.revokeObjectURL(fallbackUrl); fallbackUrl = null; }
 }
 
+let autoStart = true;
 async function start() {
   if (!prog) return;
   stop();
-  setPaused(false);
+  const holdStill = autoStart && reducedMotion;            // reduced motion: nothing moves until asked
+  autoStart = false;
+  setPaused(holdStill);
   say("Writing the stream…");
   await new Promise((r) => setTimeout(r, 30));
   const t0 = performance.now(), g = given(), src = source(prog, g, { crop: false });
   const mine = run = { given: g, src };
   table(src, Math.round(performance.now() - t0));
   $("save").hidden = !saveFn;
-  if (!(await canDecode(src))) return fallback("Your browser's WebCodecs can't decode H.264, so the page plays a 60-second file instead.");
+  if (forceFallback || !(await canDecode(src))) return fallback("Your browser's WebCodecs can't decode H.264 here, so the page wrote a 60-second file instead.");
   if (run !== mine) return;                                  // a newer run started meanwhile
+  setMode("webcodecs");
   const c = prog.fields.find((f) => f.name === prog.crop);
   // the CPU's display has fields right below it, whose chroma a browser's conversion can bleed into its
   // last rows; its picture ends in background, so the page leaves out its last two rows and columns
   const trim = prog.program ? 2 : 0, d = { x0: c.x0, y0: c.y0, w: c.shown[0] - trim, h: c.shown[1] - trim };
   player = new Player(src, {
     fps: FPS, mode,
-    onFrame: (frame) => {
+    onFrame: (frame, index) => {
       drawCorner(frame, d);
+      showCycle(index);
       if (showWhole && performance.now() >= wholeNext) {
-        // the whole frame is 16 times the corner; where converting it is slow (no GPU), draw it less often
+        // the whole frame is many times the corner; where converting it is slow (no GPU), draw it less often
         const t = performance.now();
         wctx.drawImage(frame, 0, 0);
         wholeNext = t + 4 * (performance.now() - t);
       }
       frame.close();
-      if (!status.hidden) say("");
+      if (!status.hidden && !paused) say("");
     },
     onError: (e, decoded) => {
       player = null;
-      if (!decoded) return fallback(`Your browser's decoder refused the stream (${e.message}), so the page plays a 60-second file instead.`);
+      if (!decoded) return fallback(`Your browser's decoder refused the stream (${e.message}), so the page wrote a 60-second file instead.`);
       say(e.name === "QuotaExceededError"
-        ? "Your browser took the decoder back while the page was hidden, and the board went with it. Press Run to start again."
+        ? "Your browser took the decoder back while the page was hidden, and the running state went with it. Press Run to start again."
         : `The decoder stopped after ${fmt(decoded)} frames (${e.message}). Press Run to start again.`);
     },
   });
+  if (holdStill) say("Your system asks for reduced motion, so nothing runs until you press Resume.");
   if (!paused) player.play();
 }
 
@@ -377,18 +476,34 @@ function drawCorner(frame, d) {
   octx.drawImage(frame, d.x0, d.y0, d.w, d.h, 0, 0, d.w, d.h);
 }
 
+// the repeated instructions: which of the 16 program frames the shown frame is
+const cycle = $("cycle"), cells = [];
+for (let k = 0; k < 16; k++) { const s = document.createElement("span"); s.textContent = k; cycle.appendChild(s); cells.push(s); }
+let lit = -1;
+function showCycle(index) {
+  const k = prog && index >= prog.firstProgramFrame ? index % 16 : -1;
+  if (k === lit) return;
+  if (lit >= 0) cells[lit].classList.remove("now");
+  if (k >= 0) cells[k].classList.add("now");
+  cycle.classList.toggle("idle", k < 0);
+  lit = k;
+}
+
 function fallback(why) {
   // no WebCodecs H.264 here: play a finite file in a video element instead
   say(why);
+  setMode("fallback");
   out.hidden = true; fallbackVideo.hidden = false;
-  for (const id of ["pause", "speed", "whole-check", "machine"]) $(id).hidden = true;
+  for (const id of ["pause", "speed", "machine-toggle"]) $(id).hidden = true;
+  $("machine").hidden = true;
   const { frames, width, height } = stream(prog, run.given, 60 * FPS);
   fallbackUrl = URL.createObjectURL(new Blob([mp4(frames, width, height, FPS)], { type: "video/mp4" }));
   fallbackVideo.src = fallbackUrl;
-  fallbackVideo.play().catch(() => {});
+  if (!reducedMotion) fallbackVideo.play().catch(() => {});
+  else fallbackVideo.controls = true;
 }
 fallbackVideo.addEventListener("playing", () => setTimeout(() => { if (fallbackUrl) say(""); }, 4000));
-fallbackVideo.addEventListener("error", () => { if (fallbackUrl) say("This browser could not play the file either. Download it and try QuickTime, VLC or another browser, and please report which browser failed."); });
+fallbackVideo.addEventListener("error", () => { if (fallbackUrl) say("This browser could not play the file either. Download it and try VLC, QuickTime or another browser, and please report which browser failed."); });
 
 function setPaused(p) {
   paused = p;
@@ -405,6 +520,7 @@ setInterval(() => {
   else return;
   if (f < 0) return;
   $("gen").textContent = `${unit()} ${fmt(genOf(f))}`;
+  if (fallbackUrl) showCycle(f);
   if (player) {
     const r = paused ? 0 : player.rate();
     $("stats").textContent = `frame ${fmt(f)} · ${fmt(r)} frames/s, ${(r / prog.period).toFixed(1)} ${unit()}s/s · ${human(player.fedBytes)} fed`;
@@ -423,7 +539,8 @@ function table(src, ms) {
   ];
   $("aus").innerHTML = rows.map(([r, k, w, b, col]) => `<tr><td class="code"><span class="swatch" style="background:var(${col})"></span>${r}</td><td class="code">${k}</td><td>${w}</td><td class="num">${b}</td></tr>`).join("")
     + `<tr><td class="code">—</td><td class="code">JavaScript</td><td>frames 0–${first - 1} written in your browser in ${fmt(ms)} ms; the program frames come compiled</td><td class="num"></td></tr>`;
-  document.querySelectorAll(".lede-prog").forEach((e) => { e.textContent = `one ${human(progBytes)} program frame`; });
+  $("prog-bytes").textContent = human(progBytes);
+  $("first-prog").textContent = first;
   strip([...Array(48)].map((_, i) => [src.frame(i).length, i <= c ? "--bar-pcm" : i < first ? "--bar-copy" : "--bar-prog"]));
 }
 function strip(bars) {
@@ -436,6 +553,38 @@ function strip(bars) {
     + bars.map(([v, col], i) => `<rect x="${left + i * bw + 1}" y="${y(v)}" width="${Math.max(1, bw - 2)}" height="${H - bottom - y(v)}" fill="var(${col})"><title>access unit ${i}: ${fmt(v)} bytes</title></rect>`).join("")
     + `<text x="${left}" y="${H - 6}" font-family="var(--mono)" font-size="11" fill="var(--muted)">access unit 0</text>
        <text x="${W - 10}" y="${H - 6}" text-anchor="end" font-family="var(--mono)" font-size="11" fill="var(--muted)">47 → and on, the program frames repeat</text>`;
+}
+
+// ---------- the machine: the fields, outlined from the exported layout
+function drawRegions() {
+  const W = prog.widthMbs * 16, H = prog.heightMbs * 16, svg = $("regions"), counts = new Map(), groups = GROUPS[progName];
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const stroke = Math.max(4, Math.round(W / 500)), few = prog.fields.length < 40;
+  svg.innerHTML = prog.fields.map((f) => {
+    const g = groupOf(f.name); if (!g) return "";
+    counts.set(g[0], (counts.get(g[0]) || 0) + 1);
+    const [w, h] = f.shown, col = `var(${g[1]})`;
+    const box = `<rect data-field="${f.name}" x="${f.x0 + stroke / 2}" y="${f.y0 + stroke / 2}" width="${w - stroke}" height="${h - stroke}" fill="none" stroke="${col}" stroke-width="${stroke}"/>`;
+    const key = (KEY[progName] || {})[f.name];
+    const ly = f.y0 >= 12 * stroke ? f.y0 - 4 * stroke : f.y0 + h + 8 * stroke;     // above the field, or below it at the top
+    if (key) return `<rect data-field="${f.name}" x="${f.x0 - stroke}" y="${f.y0 - stroke}" width="${w + 2 * stroke}" height="${h + 2 * stroke}" fill="none" stroke="#fff" stroke-width="${2 * stroke}"/>`
+      + `<rect x="${f.x0 - stroke}" y="${ly - 6 * stroke}" width="${key.length * 5.2 * stroke + 2 * stroke}" height="${8 * stroke}" fill="#000" fill-opacity="0.85"/>`
+      + `<text x="${f.x0}" y="${ly}" fill="#fff" font-family="Martian Mono, monospace" font-size="${6.5 * stroke}">${key}</text>`;
+    return few ? box + `<text x="${f.x0 + 3 * stroke}" y="${f.y0 + 12 * stroke}" fill="${col}" font-family="Martian Mono, monospace" font-size="${9 * stroke}" paint-order="stroke" stroke="#000" stroke-width="${2 * stroke}">${f.name}</text>` : box;
+  }).join("");
+  $("legend").innerHTML = groups.filter(([n]) => counts.has(n))
+    .map(([n, col]) => `<li><i style="border-color:var(${col})"></i>${n}${few ? "" : ` <span class="mono">(${counts.get(n)})</span>`}</li>`).join("");
+  $("machine-blurb").textContent = few
+    ? `Its ${prog.fields.length} fields are labelled with their names; the table further down gives each one's prediction.`
+    : `Its ${prog.fields.length} fields are too many to name, so colours give their parts and white outlines mark the state: the register bank, the instruction register, the program counter, the adder's carry and the display word. A word is copied into all 64 rows of a field, hence the stripes.`;
+  const colourOf = (name) => {
+    const g = PIPE_GROUP[name] ? groups.find(([n]) => n === PIPE_GROUP[name]) : groups.find(([, , re]) => name.split(/[ ,…]+/).some((p) => p && re.test(p)));
+    return g ? `var(${g[1]})` : "var(--muted)";
+  };
+  const steps = ABOUT[progName].pipe;
+  $("pipe").innerHTML = steps.map(([name, what], i) => `<b style="border-color:${colourOf(name)}">${name}<span class="mono" style="color:var(--muted)"> · ${what}</span></b>`
+    + (i < steps.length - 1 ? '<span class="arrow">→</span>' : "")).join("")
+    + `<span class="back">Each arrow is a read of an earlier frame, so every step takes at least one frame: ${prog.period} frames from one ${unit()} to the next. Every field still runs in every frame, so ${prog.period} copies of the computation are interleaved, like the stages of a CPU pipeline; they stay in step because they all start from the same state.</span>`;
 }
 
 // ---------- download: the platform's save capability inside claude.ai, a plain link elsewhere
@@ -464,7 +613,12 @@ document.querySelectorAll("[data-speed]").forEach((b) => b.addEventListener("cli
   document.querySelectorAll("[data-speed]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   if (player) player.setMode(mode);
 }));
-$("whole-box").addEventListener("change", () => { showWhole = $("whole-box").checked; $("machine").hidden = !showWhole; });
+$("machine-toggle").addEventListener("click", () => {
+  showWhole = !showWhole;
+  $("machine-toggle").setAttribute("aria-expanded", String(showWhole));
+  $("machine").hidden = !showWhole;
+  if (showWhole) $("machine").scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+});
 async function choose(name) {
   progName = name;
   document.querySelectorAll("[data-prog]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.prog === name)));
@@ -472,19 +626,22 @@ async function choose(name) {
   say("Loading the compiled program…");
   try {
     progs[name] = progs[name] || await fetch(`${name}.json`).then((r) => r.json());
-  } catch { say(`Could not load the compiled program (${name}.json).`); return; }
+  } catch { say(`Could not load the compiled program (${name}.json). Check your connection and reload the page.`); return; }
   if (progName !== name) return;
   prog = progs[name];
   const c = prog.fields.find((f) => f.name === prog.crop), W = prog.widthMbs * 16, H = prog.heightMbs * 16;
   const trim = prog.program ? 2 : 0;
   out.width = c.shown[0] - trim; out.height = c.shown[1] - trim;
   $("whole").width = W; $("whole").height = H;
-  $("machine-label").textContent = `${W} × ${H} · the same frames`;
-  $("nfields").textContent = prog.fields.length;
+  $("machine-label").textContent = `${W} × ${H} · the same frames, uncropped`;
   document.body.dataset.prog = name;
+  $("blurb").textContent = ABOUT[name].blurb;
+  $("period-line").textContent = `One ${unit()} takes ${prog.period} frames.`;
   document.querySelector(".bench").classList.toggle("wide", c.shown[0] > c.shown[1]);
-  document.querySelector(".decoded .well").style.aspectRatio = `${c.shown[0]} / ${c.shown[1]}`;
+  $("out-well").style.aspectRatio = `${c.shown[0]} / ${c.shown[1]}`;
   $("gen").textContent = `${unit()} 0`;
+  showCycle(-1);
+  drawRegions();
   if (prog.program) {
     $("listing").textContent = listing(prog.program);
     $("run").textContent = "Restart";
@@ -496,18 +653,19 @@ async function choose(name) {
   board = new Uint8Array(N * N);
   editor.width = editor.height = N;
   img = ectx.createImageData(N, N);
-  $("board-label").textContent = `${N} × ${N} cells · edges wrap`;
+  cur = [N >> 1, N >> 1];
+  $("board-label").textContent = `starting pattern · ${N} × ${N} cells · edges wrap`;
   document.querySelectorAll(".nsize").forEach((e) => { e.textContent = `${N} × ${N}`; });
-  usePreset("soup");
+  usePreset(name === "life" ? "gun" : "soup");
   start();
 }
 document.querySelectorAll("[data-prog]").forEach((b) => b.addEventListener("click", () => {
   if (b.dataset.prog === progName && prog) return;
-  try { history.replaceState(null, "", "#" + b.dataset.prog); } catch {}
+  try { history.replaceState(null, "", location.search + "#" + b.dataset.prog); } catch {}
   choose(b.dataset.prog);
 }));
 setupSave();
-choose(["#life", "#primes"].includes(location.hash) ? location.hash.slice(1) : "tunnel");
+choose(["#tunnel", "#primes"].includes(location.hash) ? location.hash.slice(1) : "life");
 </script>
 
 </body>

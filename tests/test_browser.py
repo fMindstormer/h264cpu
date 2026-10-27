@@ -131,6 +131,41 @@ def test_page_in_chromium(name, site, tmp_path):
     assert r["downloads"] and r["downloads"][0]["state"] == "completed"
     assert Path(r["downloads"][0]["path"]).read_bytes() == mp4.mux(frames, *m.fields[crop].shown_px, 60)
 
+    # the page's explanation follows the run: live mode, the cycle lit, the machine shown with its fields outlined
+    assert r["page"]["mode"] == "webcodecs" and r["page"]["cycleLit"] == 1 and r["page"]["machine"]
+    assert r["page"]["regions"] == len(m.fields) and r["page"]["legend"] >= 4
+    if name != "primes":
+        assert r["keyboard"]["cursor"] and r["keyboard"]["before"] != r["keyboard"]["after"]
+
     # a preset starts a new run: a new decoder, a new key frame, no errors
     assert r["secondRun"]["decoders"] == 2 and r["secondRun"]["keys"] == 2 and not r["secondRun"]["errors"]
     print(name, r["realtime"], r["fast"], r["stats2"])
+
+
+def test_page_fallback(site, tmp_path):
+    """Without WebCodecs (forced with ?fallback), the page writes a finite 60-second MP4, plays it in a video
+    element, and says so."""
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
+    display = [XVFB, "-a", "-s", "-screen 0 1280x1000x24"] if XVFB else []
+    subprocess.run([*display, str(ELECTRON), "--no-sandbox", str(HERE / "fallback.cjs"),
+                    site.replace("index.html", "index.html?fallback#life"), str(tmp_path / "result.json")],
+                   env=env, check=True, timeout=600)
+    r = json.loads((tmp_path / "result.json").read_text())
+    assert "error" not in r or r["error"] is None, r
+    assert r["playing"] and r["visible"] and r["canvasHidden"] and r["pauseHidden"]
+    assert abs(r["duration"] - 60) < 0.1 and (r["width"], r["height"]) == (400, 400)
+    assert r["mode"] == "fallback" and "finite" in r["modeText"] and r["decoders"] == 0
+
+
+def test_page_reduced_motion(site, tmp_path):
+    """When the system asks for reduced motion, the page writes the stream but feeds the decoder nothing until
+    Resume is pressed."""
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
+    display = [XVFB, "-a", "-s", "-screen 0 1280x1000x24"] if XVFB else []
+    subprocess.run([*display, str(ELECTRON), "--no-sandbox", str(HERE / "fallback.cjs"), site + "#life",
+                    str(tmp_path / "result.json"), "reduced"], env=env, check=True, timeout=600)
+    r = json.loads((tmp_path / "result.json").read_text())
+    assert "error" not in r, r
+    assert r["decoders"] == 1 and r["fed"] == 0 and r["fedBefore"] == 0
+    assert r["pause"] == "Resume" and "reduced motion" in r["status"]
+    assert r["afterResume"] > 30
