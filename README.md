@@ -145,8 +145,9 @@ browser frames, and playback by eye), and [the verification notes](notes/verific
 - **Size.** The starting state is stored as raw samples, 0.8 to 5.1 MB per file.
 - **Decoders checked frame by frame:** ffmpeg (6.1 on Linux, 9.0 on macOS), Chromium's decoder in
   Electron (software on Linux, VideoToolbox on macOS), and Apple's VideoToolbox through ffmpeg, on an M4
-  Mac. ffmpeg 9's arm64 NEON code has a weighted-prediction bug these files don't trigger
-  ([details](notes/development.md)).
+  Mac. FFmpeg's SIMD bi-prediction (x86, and arm64) is not bit-exact at the largest weight denominator,
+  2^7, so FFmpeg-based decoders, Chromium's software decoder among them, depart from the standard
+  there. These files never use 2^7 ([details](notes/development.md)).
 - **Not yet checked:** phones, Windows Media Foundation, and GPU decoding in browsers on Windows and
   Linux. That a browser offers WebCodecs[^webcodecs] does not show that its decoder computes these
   streams correctly; if a player shows something else, please open an issue naming it.
@@ -170,7 +171,7 @@ art and programmable media, with citations: [prior art](notes/prior-art.md).
 | [The programs](notes/programs.md) | Life in 18 fields, spiral waves, Turing patterns, the tunnel's fractional motion, the CPU |
 | [How it is checked](notes/verification.md) | every check, the four kinds of evidence, the release verification record, clock speed |
 | [Prior art](notes/prior-art.md) | Video2NAND, JPEG XL art, FORCEDENTRY, datamoshing, programmable media |
-| [Notes from the work](notes/development.md) | the ffmpeg NEON bug, frame_num's limit, the Wireworld detour, and other findings |
+| [Notes from the work](notes/development.md) | FFmpeg's SIMD bi-prediction gap, frame_num's limit, the Wireworld detour, and other findings |
 
 **Run it**
 

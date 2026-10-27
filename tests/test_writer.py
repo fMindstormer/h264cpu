@@ -12,8 +12,8 @@ pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ff
 
 
 def decode(path, W, H):
-    # ffmpeg's C decoder, the reference: its arm64 NEON code (seen in ffmpeg 9.0.2) gets bi-predicted samples
-    # wrong when large weights meet large offsets, which these random streams use and the programs never do.
+    # ffmpeg's C decoder, the reference: its SIMD bi-prediction (x86 SSE2/SSSE3, and arm64) computes in 16 bits
+    # and is not exact at a weight denominator of 2^7, which these random streams use and the programs never do.
     return [tuple(p.copy() for p in f) for f in decode_frames(path, W, H, ("-cpuflags", "0"))]
 
 

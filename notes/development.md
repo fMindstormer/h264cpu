@@ -13,11 +13,19 @@ What went wrong on the way, and what it taught.
   - It got about 60% of test digits right.
   - It worked, but it was dull to watch. Cellular automata turned out to be the natural fit: local
     rules, iterated forever, with something to see.
-- **ffmpeg's arm64 decoder departs from the standard.** On an Apple-silicon Mac, ffmpeg 9.0.2 failed
-  the random writer test. Bi-prediction from two flat pictures shows it: with weights 64
-  and 63 and both offsets 127 at L = 7, the standard gives 254 and ffmpeg's NEON code gives 0. Its C code
-  (`-cpuflags 0`) and VideoToolbox both give 254. The programs never combine weights and offsets that
-  large, so all five files still decode exactly there; the writer test now decodes with the C code.
+- **FFmpeg's SIMD bi-prediction departs from the standard.** On an Apple-silicon Mac, ffmpeg 9.0.2
+  failed the random writer test. Bi-prediction from two flat pictures shows it: with weights 64 and 63
+  and both offsets 127 at a weight denominator of 2^7, the standard gives 254 and the default decode
+  gives 0. FFmpeg's C code (`-cpuflags 0`) and VideoToolbox both give 254.
+  - The cause: the SIMD functions compute in 16 bits. The weighted sum plus the offset term can pass
+    32,767 at a denominator of 2^7, where FFmpeg's x86 code (SSE2, SSSE3) saturates, giving 127, and
+    9.0.2's arm64 code wrapped, giving 0 (and also failed some cases at 2^6).
+  - FFmpeg master fixed the 2^6 cases on arm64 in September 2026 and now saturates like x86, so on
+    master both give 127. FFmpeg's own `checkasm` test skips the 2^7 case for 8-bit video, noting that
+    the x86 code is exact only up to 2^6. Chromium's software decoder is FFmpeg, so it inherits this.
+  - h264cpu never uses 2^7 (a slice at 2^7 would need a copy weight of 128, one beyond the limit), so
+    all five files decode exactly on these decoders; the writer test, whose random streams do use it,
+    decodes with the C code.
 - **The Wireworld computer came first as cells.** An 800×600 version of it runs in plain NumPy, and
   13% of its cells are wire, so a sparse layout fit the level. Owen's own figures ended it: 2,304
   generations per instruction is minutes per instruction here. The instruction set, built directly, is
