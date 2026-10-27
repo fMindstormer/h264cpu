@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install ffmpeg and Xvfb
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg xvfb
       - name: Install Python packages
         run: pip install -r requirements.txt pytest
       - name: Install Electron, a Chromium that decodes H.264, for the page test
