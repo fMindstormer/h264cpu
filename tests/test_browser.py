@@ -134,6 +134,8 @@ def test_page_in_chromium(name, site, tmp_path):
     # the page's explanation follows the run: live mode, the cycle lit, the machine shown with its fields outlined
     assert r["page"]["mode"] == "webcodecs" and r["page"]["cycleLit"] == 1 and r["page"]["machine"]
     assert r["page"]["regions"] == len(m.fields) and r["page"]["legend"] >= 4
+    if name == "life":                      # and its own check of every shown frame against Life agrees
+        assert r["page"]["check"] == "ok", r["page"]["checkText"]
     if name != "primes":
         assert r["keyboard"]["cursor"] and r["keyboard"]["before"] != r["keyboard"]["after"]
 
@@ -155,6 +157,42 @@ def test_page_fallback(site, tmp_path):
     assert r["playing"] and r["visible"] and r["canvasHidden"] and r["pauseHidden"]
     assert abs(r["duration"] - 60) < 0.1 and (r["width"], r["height"]) == (400, 400)
     assert r["mode"] == "fallback" and "finite" in r["modeText"] and r["decoders"] == 0
+
+
+@pytest.mark.parametrize("decoder", ["software", "hardware"])
+def test_page_checks_life_with_each_decoder(decoder, site, tmp_path):
+    """The page can ask WebCodecs for a hardware or a software decoder, and checks every shown Life frame
+    against Life computed in JavaScript. Chromium's software decoder is always there and must compute Life
+    right; a hardware one may not be offered (as on CI), and then the page must say so and not fall back."""
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
+    display = [XVFB, "-a", "-s", "-screen 0 1280x1000x24"] if XVFB else []
+    subprocess.run([*display, str(ELECTRON), "--no-sandbox", str(HERE / "survey.cjs"),
+                    site.replace("index.html", f"index.html?decoder={decoder}#life"), str(tmp_path / "result.json")],
+                   env=env, check=True, timeout=600)
+    r = json.loads((tmp_path / "result.json").read_text())
+    assert "error" not in r, r
+    assert r["pressed"] == f"prefer-{decoder}"
+    if r["state"] == "none":
+        assert decoder == "hardware" and r["decoders"] == 0 and "no hardware" in r["status"], r
+    else:
+        assert r["state"] == "ok", r["text"]
+        assert r["decoders"] == 1 and not r["errors"], r
+        assert int(r["text"].split()[0].replace(",", "")) >= 200
+    assert r["report"].startswith("https://github.com/fMindstormer/h264cpu/issues/new?title=Decoder%20check")
+    print(decoder, r["state"], r["text"], r["formats"])
+
+
+def test_page_check_catches_one_wrong_cell(site, tmp_path):
+    """If the decoded picture differs from Life in a single cell, the page says which generation and how many cells."""
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
+    display = [XVFB, "-a", "-s", "-screen 0 1280x1000x24"] if XVFB else []
+    subprocess.run([*display, str(ELECTRON), "--no-sandbox", str(HERE / "survey.cjs"),
+                    site.replace("index.html", "index.html?decoder=software#life"), str(tmp_path / "result.json"), "tamper"],
+                   env=env, check=True, timeout=600)
+    r = json.loads((tmp_path / "result.json").read_text())
+    assert "error" not in r, r
+    assert r["state"] == "bad" and " 1 of 40,000 cells differ" in r["text"], r["text"]
+    assert "Life%20computed%20wrong" in r["report"]
 
 
 def test_page_reduced_motion(site, tmp_path):

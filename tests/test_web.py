@@ -68,3 +68,25 @@ def test_program_frames_do_not_depend_on_the_start(tmp_path):
     assert len(set(fa[start:start + 16])) == 16 and fa[start:start + 16] == fa[start + 16:start + 32]
     pa, pb = (export(m, life.given(x), tmp_path / f"{n}.json")["programFrames"] for n, x in (("a", a), ("b", b)))
     assert pa == pb
+
+
+def test_the_page_checks_the_generation_the_display_shows():
+    """The page checks each shown Life frame against Life computed in JavaScript. Frame f shows generation
+    (f - first program frame - DISPLAY_LAG) // 6 + 1 (0 before that), its live cells the brightest level."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_browser import simulated
+    m = life.build()
+    board = life.soup(seed=3)
+    init = m.initial(life.given(board))
+    m.stream(init, 1, "D")                                          # sets the first program frame
+    gens = [board]
+    for _ in range(12):
+        gens.append(life.life_step(gens[-1]))
+    d = m.fields["D"]
+    for f, planes in simulated(m, init, range(60)):
+        shown = f - m.first_program_frame - life.DISPLAY_LAG
+        g = 0 if shown < 0 else shown // life.PERIOD + 1
+        y = planes[0][d.y0:d.y0 + 2 * life.N:2, d.x0:d.x0 + 2 * life.N:2]
+        assert np.array_equal(y > 217, gens[g]), f
+

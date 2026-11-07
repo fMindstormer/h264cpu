@@ -92,6 +92,13 @@ button[aria-pressed="true"], button[aria-expanded="true"] { border-color: var(--
 .hint { margin: 0; font-size: 0.9rem; color: var(--muted); }
 .mode { margin: 0; font-size: 0.9rem; padding: 8px 10px; border-radius: 4px; background: var(--paper); border: 1px solid var(--rule); }
 .mode strong { font-family: var(--display); font-size: 1rem; letter-spacing: 0.02em; }
+.check { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.check p { margin: 0; }
+#check { font-size: 0.95rem; }
+#check[data-state="ok"]::before { content: "✓ "; color: #2f8f5b; font-weight: 700; }
+#check[data-state="bad"]::before { content: "✗ "; color: #c62828; font-weight: 700; }
+#check[data-state="bad"] { font-weight: 600; }
+body:not([data-prog="life"]) .life-only { display: none; }
 #machine-toggle { justify-self: start; }
 .save { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--rule); }
 .listing-code { margin: 0; font-size: 0.72rem; line-height: 1.6; overflow: auto; max-height: 460px; white-space: pre; }
@@ -200,8 +207,19 @@ body:not([data-prog="primes"]) .cpu-only, body[data-prog="primes"] .board-only {
         <button type="button" data-speed="realtime" aria-pressed="true">60 frames/s</button><button type="button" data-speed="fast" aria-pressed="false">Flat out</button>
       </span>
     </div>
+    <div class="row">
+      <span class="label" id="accel-label">Decoder</span>
+      <span class="seg" role="group" aria-labelledby="accel-label" id="accel">
+        <button type="button" data-accel="no-preference" aria-pressed="true">Browser's choice</button><button type="button" data-accel="prefer-hardware" aria-pressed="false">Hardware</button><button type="button" data-accel="prefer-software" aria-pressed="false">Software</button>
+      </span>
+    </div>
     <p id="stats" class="stats mono" aria-live="off">&nbsp;</p>
     <p id="mode" class="mode" aria-live="polite"><strong>Starting…</strong></p>
+    <div class="check life-only">
+      <p id="check" aria-live="polite">Each shown frame is checked against Life computed in JavaScript.</p>
+      <div class="row"><button type="button" id="copy-result">Copy the result</button><a id="report" href="https://github.com/fMindstormer/h264cpu/issues" target="_blank" rel="noopener">Send it as a GitHub issue</a></div>
+      <p class="hint">Run it with each decoder, flat out for half a minute, and send the results: they go into a table of decoders, and a decoder that gets Life wrong is not following the standard.</p>
+    </div>
     <div class="save">
       <div class="row">
         <label class="label" for="dur">Download this run</label>
@@ -277,6 +295,8 @@ body:not([data-prog="primes"]) .cpu-only, body[data-prog="primes"] .board-only {
 
 <script type="module">
 import { source, stream, mp4, canDecode, Player, givenValues } from "./h264cpu.js";
+
+const REPO = "https://github.com/fMindstormer/h264cpu";
 
 const FPS = 60;
 let N = 200;
@@ -380,6 +400,8 @@ editor.addEventListener("keydown", (e) => {
 // ---------- running: the page writes the stream, your decoder computes, the canvas shows what it outputs
 const out = $("out"), octx = out.getContext("2d"), wctx = $("whole").getContext("2d"), fallbackVideo = $("fallback");
 let player = null, run = null, mode = "realtime", paused = false, showWhole = false, wholeNext = 0, fallbackUrl = null, saveFn = null;
+const ACCEL = { hardware: "prefer-hardware", software: "prefer-software" };
+let accel = ACCEL[new URLSearchParams(location.search).get("decoder")] || "no-preference";
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
 const human = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + " MB" : n >= 1e3 ? (n / 1e3).toFixed(1) + " KB" : n + " B");
 const genOf = (f) => (f < prog.firstProgramFrame ? 0 : Math.floor((f - prog.firstProgramFrame) / prog.period) + 1);
@@ -429,6 +451,13 @@ async function start() {
   const mine = run = { given: g, src };
   table(src, Math.round(performance.now() - t0));
   $("save").hidden = !saveFn;
+  resetCheck();
+  if (accel !== "no-preference" && !forceFallback && !(await canDecode(src, accel))) {
+    if (run !== mine) return;
+    check.unsupported = true;
+    out.getContext("2d").clearRect(0, 0, out.width, out.height);
+    return say(`This browser offers WebCodecs no ${accel === "prefer-hardware" ? "hardware" : "software"} H.264 decoder for a ${src.codedWidth} × ${src.codedHeight} stream. Choose another decoder.`);
+  }
   if (forceFallback || !(await canDecode(src))) return fallback("Your browser's WebCodecs can't decode H.264 here, so the page wrote a 60-second file instead.");
   if (run !== mine) return;                                  // a newer run started meanwhile
   setMode("webcodecs");
@@ -437,9 +466,11 @@ async function start() {
   // last rows; its picture ends in background, so the page leaves out its last two rows and columns
   const trim = prog.program ? 2 : 0, d = { x0: c.x0, y0: c.y0, w: c.shown[0] - trim, h: c.shown[1] - trim };
   player = new Player(src, {
-    fps: FPS, mode,
+    fps: FPS, mode, hardwareAcceleration: accel,
     onFrame: (frame, index) => {
       drawCorner(frame, d);
+      if (!check.format) check.format = `${frame.format || "opaque"}${frame.colorSpace && frame.colorSpace.fullRange === false ? ", limited range" : ""}`;
+      checkShown(index);
       showCycle(index);
       if (showWhole && performance.now() >= wholeNext) {
         // the whole frame is many times the corner; where converting it is slow (no GPU), draw it less often
@@ -452,6 +483,7 @@ async function start() {
     },
     onError: (e, decoded) => {
       player = null;
+      check.error = `${e.name}: ${e.message}, after ${decoded} frames`;
       if (!decoded) return fallback(`Your browser's decoder refused the stream (${e.message}), so the page wrote a 60-second file instead.`);
       say(e.name === "QuotaExceededError"
         ? "Your browser took the decoder back while the page was hidden, and the running state went with it. Press Run to start again."
@@ -475,6 +507,79 @@ function drawCorner(frame, d) {
   }
   octx.drawImage(frame, d.x0, d.y0, d.w, d.h, 0, 0, d.w, d.h);
 }
+
+// ---------- the check: each shown Life frame against Life computed here, from the same starting board
+const check = {};
+function resetCheck() {
+  Object.assign(check, { on: !!prog.check, gen: 0, cur: Uint8Array.from(board), frames: 0, upTo: 0, bad: null,
+    format: "", unsupported: false, error: "", accel, started: performance.now(), best: 0 });
+}
+function lifeStep(b) {
+  const n = new Uint8Array(N * N);
+  for (let y = 0; y < N; y++) {
+    const up = ((y + N - 1) % N) * N, mid = y * N, dn = ((y + 1) % N) * N;
+    for (let x = 0; x < N; x++) {
+      const l = (x + N - 1) % N, r = (x + 1) % N;
+      const k = b[up + l] + b[up + x] + b[up + r] + b[mid + l] + b[mid + r] + b[dn + l] + b[dn + x] + b[dn + r];
+      n[mid + x] = k === 3 || (k === 2 && b[mid + x]) ? 1 : 0;
+    }
+  }
+  return n;
+}
+function checkShown(index) {
+  // frame f shows generation (f - first program frame - lag) / period + 1; a live cell is the brightest
+  // level of the glow, luma 241 (the next level down is 194)
+  if (!check.on || check.bad) return;
+  const s = index - prog.firstProgramFrame - prog.check.lag, g = s < 0 ? 0 : Math.floor(s / prog.period) + 1;
+  while (check.gen < g) { check.cur = lifeStep(check.cur); check.gen++; }
+  const px = octx.getImageData(0, 0, 2 * N, 2 * N).data;
+  let wrong = 0;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const o = (4 * y * N + 2 * x) * 4, luma = 0.299 * px[o] + 0.587 * px[o + 1] + 0.114 * px[o + 2];
+      if ((luma > 217 ? 1 : 0) !== check.cur[y * N + x]) wrong++;
+    }
+  }
+  check.frames++; check.upTo = g;
+  if (wrong) check.bad = { gen: g, frame: index, cells: wrong };
+}
+const accelName = (a) => ({ "no-preference": "the browser's choice", "prefer-hardware": "hardware", "prefer-software": "software" })[a];
+function checkLine() {
+  if (!check.on) return ["", ""];
+  if (check.unsupported) return ["none", `No ${accelName(check.accel)} decoder here for this stream.`];
+  if (fallbackUrl) return ["", "The check needs WebCodecs; the fallback video is not checked."];
+  if (check.bad) return ["bad", `Generation ${fmt(check.bad.gen)} (frame ${fmt(check.bad.frame)}): ${fmt(check.bad.cells)} of ${fmt(N * N)} cells differ from Life. This decoder did not compute what the standard says.`];
+  if (check.error) return ["", `The decoder stopped (${check.error}).`];
+  if (!check.frames) return ["", "Each shown frame is checked against Life computed in JavaScript."];
+  return ["ok", `${fmt(check.frames)} shown frames checked, up to generation ${fmt(check.upTo)}: every cell as Life says.`];
+}
+function gpuName() {
+  try {
+    const gl = document.createElement("canvas").getContext("webgl"), ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    return gl ? String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "no WebGL";
+  } catch { return "unknown"; }
+}
+function resultText() {
+  const [, line] = checkLine(), r = player && !paused ? player.rate() : 0;
+  return [
+    "h264cpu decoder check",
+    `decoder asked for: ${accelName(check.accel)}${check.format ? ` (frames come back as ${check.format})` : ""}`,
+    `result: ${line}`,
+    `speed: ${fmt(Math.max(r, check.best))} frames/s at best, ${(Math.max(r, check.best) / prog.period).toFixed(1)} generations/s (${mode === "fast" ? "flat out" : "60 frames/s; choose Flat out to measure the decoder"})`,
+    `browser: ${navigator.userAgent}`,
+    `GPU: ${gpuName()}`,
+    `page: ${location.origin}${location.pathname}`,
+  ].join("\n");
+}
+$("copy-result").addEventListener("click", async () => {
+  const text = resultText(), b = $("copy-result");
+  try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch { prompt("Copy the result:", text); }
+  setTimeout(() => { b.textContent = "Copy the result"; }, 1500);
+});
+$("report").addEventListener("click", (e) => {
+  const title = `Decoder check: ${accelName(check.accel)}, ${check.bad ? "Life computed wrong" : check.unsupported ? "not offered" : "correct"}`;
+  e.currentTarget.href = `${REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent("```\n" + resultText() + "\n```\n\nDevice (model, OS version):\n")}`;
+});
 
 // the repeated instructions: which of the 16 program frames the shown frame is
 const cycle = $("cycle"), cells = [];
@@ -514,6 +619,8 @@ function setPaused(p) {
 
 setInterval(() => {
   if (!prog) return;
+  const [state, line] = checkLine();
+  if ($("check").textContent !== line) { $("check").textContent = line; $("check").dataset.state = state; }
   let f;
   if (player) f = player.shown;
   else if (fallbackUrl) f = Math.round(fallbackVideo.currentTime * FPS);
@@ -523,6 +630,7 @@ setInterval(() => {
   if (fallbackUrl) showCycle(f);
   if (player) {
     const r = paused ? 0 : player.rate();
+    if (mode === "fast") check.best = Math.max(check.best, r);
     $("stats").textContent = `frame ${fmt(f)} · ${fmt(r)} frames/s, ${(r / prog.period).toFixed(1)} ${unit()}s/s · ${human(player.fedBytes)} fed`;
   } else $("stats").textContent = `frame ${fmt(f)} of a 60-second file`;
 }, 250);
@@ -608,6 +716,15 @@ $("save").addEventListener("click", () => {
 document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => { usePreset(b.dataset.preset); start(); }));
 $("run").addEventListener("click", start);
 $("pause").addEventListener("click", () => setPaused(!paused));
+document.querySelectorAll("[data-accel]").forEach((b) => {
+  b.setAttribute("aria-pressed", String(b.dataset.accel === accel));
+  b.addEventListener("click", () => {
+    if (b.dataset.accel === accel) return;
+    accel = b.dataset.accel;
+    document.querySelectorAll("[data-accel]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    start();                                                   // a new decoder, from frame 0
+  });
+});
 document.querySelectorAll("[data-speed]").forEach((b) => b.addEventListener("click", () => {
   mode = b.dataset.speed;
   document.querySelectorAll("[data-speed]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));

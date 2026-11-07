@@ -74,7 +74,7 @@ def main(docs="docs"):
     docs = Path(docs)
     docs.mkdir(parents=True, exist_ok=True)
     m = life.build()
-    export(m, life.given(life.soup()), docs / "life.json")
+    export(m, life.given(life.soup()), docs / "life.json", extra={"check": {"lag": life.DISPLAY_LAG}})
     m = tunnel.build()
     _, stored, _ = tunnel.start(m)
     export(m, tunnel.start_given(tunnel.soup()), docs / "tunnel.json", crop_field=tunnel.CROP, first=tunnel.FIRST,

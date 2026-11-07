@@ -60,7 +60,8 @@ app.whenReady().then(async () => {
     result.stats2 = await js(`document.getElementById("stats").textContent`);
     result.page = await js(`({ mode: document.getElementById("mode").dataset.kind, machine: !document.getElementById("machine").hidden,
       regions: document.querySelectorAll("#regions [data-field]").length, legend: document.querySelectorAll("#legend li").length,
-      cycleLit: document.querySelectorAll("#cycle span.now").length })`);
+      cycleLit: document.querySelectorAll("#cycle span.now").length, check: document.getElementById("check").dataset.state || "",
+      checkText: document.getElementById("check").textContent })`);
     await w.webContents.capturePage().then((img) => fs.writeFileSync(shotPrefix + "-fast.png", img.toPNG()));
     // 4. download this run as a 10 s file
     await js(`window.__cap.want = () => false; const d = document.getElementById("dur"); d.value = "10";

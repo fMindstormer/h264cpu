@@ -46,6 +46,11 @@ The rule is simulation first. Every program is an exact NumPy model of what a de
   program frames is lit, that the whole-machine view outlines every field, and that the keyboard draws.
   Two more runs check the page's other modes: forced into its fallback, it plays a finite 60-second MP4
   and says so; asked for reduced motion, it feeds the decoder nothing until Resume is pressed.
+- **The page's own check.** On the Life tab the page compares every frame it shows with Life computed in
+  JavaScript, a check any visitor runs on their own decoder. Its threshold reads the canvas the frame was
+  drawn to, after the browser's colour conversion, so it tells live from dead cells rather than comparing
+  samples. `tests/test_browser.py` runs it with the software and the hardware decoder (where one is
+  offered), and once with one cell of the readback altered, which it must report.
   - On macOS, Chromium decodes through VideoToolbox and hands the page frames converted to limited range,
     though the stream says full range: the luma through a table within 1 of 16 + 219 y / 255, the chroma
     through a colour matrix too. There the test learns the luma table from two whole frames, where each

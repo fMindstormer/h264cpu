@@ -327,18 +327,20 @@ export function mp4(frames, width, height, fps = 60) {
 // ------------------------------------------------------------------ playing forever (WebCodecs)
 export const CODEC = "avc1.4D0033";                          // Main profile, level 5.1
 
-export function decoderConfig(src) {
+export function decoderConfig(src, hardwareAcceleration = "no-preference") {
+  // hardwareAcceleration: "no-preference" lets the browser pick its decoder; "prefer-hardware" and
+  // "prefer-software" ask for one kind, and a browser that has none of that kind refuses the config
   return {
     codec: CODEC, codedWidth: src.codedWidth, codedHeight: src.codedHeight,
     description: avcConfig(src.head[0]),                     // samples as in an MP4, the input every WebCodecs takes
-    optimizeForLatency: true,
+    optimizeForLatency: true, hardwareAcceleration,
     colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "smpte170m", fullRange: true },   // as the VUI says
   };
 }
 
-export async function canDecode(src) {
+export async function canDecode(src, hardwareAcceleration) {
   if (typeof VideoDecoder === "undefined" || typeof EncodedVideoChunk === "undefined") return false;
-  try { return (await VideoDecoder.isConfigSupported(decoderConfig(src))).supported === true; } catch { return false; }
+  try { return (await VideoDecoder.isConfigSupported(decoderConfig(src, hardwareAcceleration))).supported === true; } catch { return false; }
 }
 
 export class Player {
@@ -346,14 +348,14 @@ export class Player {
   // lives in the decoder's reference frames, so every frame is decoded, in order; only showing is optional.
   // mode "realtime" shows frames at fps; "fast" decodes as fast as the decoder goes and shows the newest
   // frame at each screen refresh. onFrame(frame, index) must close() the frame.
-  constructor(src, { fps = 60, mode = "realtime", onFrame, onError } = {}) {
+  constructor(src, { fps = 60, mode = "realtime", hardwareAcceleration, onFrame, onError } = {}) {
     Object.assign(this, { src, fps, mode, onFrame, onError });
     this.next = 0; this.decoded = 0; this.shown = -1; this.fedBytes = 0;
     this.queue = []; this.latest = null; this.anchor = null; this.running = false; this.closed = false;
     this.variantSamples = new Map(); this.rates = [];
     this.dec = new VideoDecoder({ output: (f) => this.output(f), error: (e) => this.fail(e) });
     this.dec.addEventListener("dequeue", () => this.feed());
-    this.dec.configure(decoderConfig(src));
+    this.dec.configure(decoderConfig(src, hardwareAcceleration));
     this.onVisible = () => this.feed();
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisible);
     const loop = (now) => { if (this.closed) return; this.tick(now); requestAnimationFrame(loop); };

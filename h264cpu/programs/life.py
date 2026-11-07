@@ -20,6 +20,7 @@ N = 200                                    # board cells per side
 TILE, HTILE = 2 * N, 2 * N + 32            # a field's side in pixels, without and with an 8-cell halo
 WIDTH_MBS, HEIGHT_MBS = 252, 52            # one band of L = 6 fields, one of L = 0 fields
 PERIOD = 6                                 # frames per generation
+DISPLAY_LAG = 4                            # frames from S to its picture: H reads S 2 back, r0 and r1 read H 1, D reads them 1
 # ember palette in YCbCr: dead (black), a cell that died a few generations ago (orange), alive (warm white)
 PALETTE_YCBCR = [(0, 127, 127), (125.0, 74.4, 202.9), (239.9, 105.5, 138.7)]
 

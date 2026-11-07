@@ -115,13 +115,14 @@ it in every sample of every frame.
 | The CPU executes its instruction set | registers, program counter, instruction register, display and carry, read from decoded frames, equal a reference CPU after every instruction | the same, for `primes` |
 | Browser downloads match the compiler | the page's JavaScript writes the same `.264` and `.mp4` bytes as the Python writer | `tests/test_web.py` |
 | A browser's decoder agrees | frames Chromium's decoder hands the page, sampled, equal the simulation | `tests/test_browser.py` |
+| The page's own check would catch a wrong decoder | the page compares every shown Life frame with JavaScript Life; with one cell altered it reports that cell | `tests/test_browser.py::test_page_check_catches_one_wrong_cell` |
 | The release files decode exactly on two decoders | all 1800 frames of all five files, on ffmpeg and on Apple's VideoToolbox | [release record](notes/verification.md#release-verification-record) |
 
 Quick check, about three minutes on an M4 Mac (needs ffmpeg and Node.js):
 
     pip install -r requirements.txt pytest
     pytest -q tests/test_writer.py tests/test_programs.py tests/test_web.py
-    # 12 passed
+    # 13 passed
 
 The whole suite adds the browser tests (`npm install --prefix tests/browser` first; on Linux, `xvfb-run`)
 and runs in CI on every push. Rebuilding and fully checking a release file:
@@ -131,6 +132,23 @@ and runs in CI on every push. Rebuilding and fully checking a release file:
 
 These are four different kinds of evidence (short automated runs, full release verification, sampled
 browser frames, and playback by eye), and [the verification notes](notes/verification.md) keep them apart.
+
+## Which decoders compute it
+
+The page can ask WebCodecs for a hardware or a software decoder (**Decoder**: Browser's choice,
+Hardware, Software), and it checks every frame it shows against Life computed in JavaScript from the
+same starting board. A decoder that computes Life wrong is not following the H.264 standard, so each row
+is a small conformance test. Results so far:
+
+| Device | Browser | Decoder | Frames come back as | Life | Flat out |
+|---|---|---|---|---|---|
+| Apple M4, macOS 27.0.1 | Chromium 140 (Electron 38.8.6) | hardware (VideoToolbox) | NV12, limited range | correct to generation 2,101 | 635 frames/s, 106 generations/s |
+| Apple M4, macOS 27.0.1 | Chromium 140 (Electron 38.8.6) | software (FFmpeg) | I420 | correct to generation 3,972 | 1,149 frames/s, 192 generations/s |
+
+To add a row, open [the page](https://fmindstormer.github.io/h264cpu/) on the Game of Life tab, choose
+a decoder and **Flat out**, let it run for half a minute, and press **Send it as a GitHub issue**. The
+issue carries the browser, the GPU, the frame format and the result. A browser that offers no decoder of
+the kind asked for says so, which is a result too.
 
 ## Limits and compatibility
 
@@ -150,10 +168,11 @@ browser frames, and playback by eye), and [the verification notes](notes/verific
   there. These files never use 2^7 ([details](notes/development.md)).
 - **Not yet checked:** phones, Windows Media Foundation, and GPU decoding in browsers on Windows and
   Linux. That a browser offers WebCodecs[^webcodecs] does not show that its decoder computes these
-  streams correctly; if a player shows something else, please open an issue naming it.
+  streams correctly; [the page's check](#which-decoders-compute-it) tells, and results are welcome.
 - **Speed.** A decoder slower than the program's macroblock rate runs it slower, never skipping a frame.
   On an M4 Mac, ffmpeg decodes Life at about 900 frames a second (150 generations) and the CPU at about
-  790 (46 instructions); Chromium's page runs them at about 650 and 620 frames a second.
+  790 (46 instructions); Chromium's page runs them at about 650 and 620 frames a second with its default,
+  hardware decoder, and Life at about 1,150 with its software one.
 
 ## Prior art
 
